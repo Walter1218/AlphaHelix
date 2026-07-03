@@ -495,6 +495,12 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 - 需警惕过拟合，必须保留 out-of-sample 验证。
 - 70% 方向准确率阈值较高，可能在小样本（8 个月）下无满足条件的组合，此时可适当放宽至 60% 作为过渡。
 
+**首次运行结果（2026-07-03）**：
+- 已落地 `scripts/multi_objective_optimizer.py` 与完整 pass2 snapshot（`memory/stock/{date}_{strategy}_full.json`）。
+- 在 8 个月样本上，对 `event_driven` 和 `contrarian` 各随机搜索 10,000 组 pass2 权重，方向准确率均无法突破 55%。
+- `event_driven` baseline 已接近 pass2 权重空间内的收益最优；`contrarian` baseline 同样无法通过 pass2 权重调整扭亏。
+- **判断**：70% 阈值在当前样本和策略结构下不可行，必须升级到 pass1 优化、regime 条件优化或引入新因子。
+
 ---
 
 ## ADR-030：event_driven 策略回测验证结果

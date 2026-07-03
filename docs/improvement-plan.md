@@ -611,6 +611,11 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 - 必须保留 out-of-sample 区间验证，防止在 8 个月样本上过拟合。
 - 不同市场 regime 应分别优化权重，而非全样本一套权重。
 
+**首次运行结果（2026-07-03）**：
+- `event_driven`：baseline avg_excess=+2.60%，dir_acc=50.0%；随机搜索 10,000 组 pass2 权重后，无组合达到 55% 方向准确率，最佳收益与 baseline 相同。
+- `contrarian`：baseline avg_excess=-0.88%，dir_acc=50.0%；同样无组合达到 55% 方向准确率。
+- **结论**：当前 8 期样本下，仅靠 pass2 权重调整无法将方向准确率提升到 55% 以上；baseline 权重对各自候选池已接近最优。要达到 70% 方向准确率，需要扩大样本、优化 pass1 权重、引入新因子，或采用 regime 条件优化。
+
 ### 10.2 L7 自动化：接入 cron
 
 配置 cron 实现无人值守：
