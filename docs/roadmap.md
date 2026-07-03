@@ -275,6 +275,7 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 并行推进** 的阶段：
 - [ ] **资金流动量因子优化**：用 `net_mf_ratio` 替代绝对金额，捕捉 5日/20日背离
 - [x] **构建行业相对强度因子**：已新增 `sector_momentum`、`relative_to_sector`、`sector_mom5`、`sector_amount_ratio`，应用于 `contrarian` 与 `event_driven`
 - [ ] **将 event_driven 接入 regime 映射**：当前 regime 在 2026 Q2 实际等同于 momentum，错失 event_driven 超额收益
+- [ ] **多目标离线权重优化**：在方向准确率 ≥ 70% 约束下，搜索收益最大的 pass2 权重组合，优先针对 `event_driven` 与 `regime`
 - [ ] **range 市场下 contrarian 权重动态提升**：通过 `strategy_tracker` 根据滚动绩效调整策略配比
 - [ ] `quality_growth` 策略调优
 - [ ] 行业轮动与宏观 regime 深度融合

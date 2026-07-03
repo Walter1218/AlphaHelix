@@ -582,9 +582,36 @@ weights = weights / weights.sum()
 
 ---
 
-## 10. 立即可执行的 8 个动作
+## 10. 立即可执行的 9 个动作
 
-### 10.1 L7 自动化：接入 cron
+### 10.1 L6 Feedback Harness：多目标离线权重优化（当前最高优先级）
+
+**目标**：在方向准确率硬约束下，搜索使超额收益最大的因子权重组合。
+
+**优化形式**：
+
+```
+maximize  avg_excess_return
+subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
+```
+
+**实现思路**：
+1. 复用已有 walk-forward 产物：`memory/stock/YYYYMMDD.json`（含因子值）和 `memory/eval/YYYYMMDD_{strategy}_h{horizon}.json`（含实际收益）。
+2. 对每套策略的 pass2 权重做网格/随机搜索。
+3. 对每一组权重，在历史截面上重新计算综合得分、选 top-n、计算该期组合收益与方向。
+4. 跨期聚合后，筛选方向准确率 ≥ threshold 的组合，取超额收益最高者。
+5. 输出 `memory/weights/{strategy}_mo_latest.json`，`screen.py` 优先加载。
+
+**与当前 IC 优化的区别**：
+- 当前 `weight_optimizer.py` 优化的是因子 rank IC，间接希望提升收益，但没有显式约束方向准确率。
+- 多目标优化直接以「方向准确率 ≥ 70%」为硬约束，「超额收益」为唯一目标，更贴近实盘目标函数。
+
+**注意事项**：
+- 搜索空间随因子数量指数增长，先用随机搜索 + 约束筛选；若效果稳定，再引入贝叶斯优化或遗传算法。
+- 必须保留 out-of-sample 区间验证，防止在 8 个月样本上过拟合。
+- 不同市场 regime 应分别优化权重，而非全样本一套权重。
+
+### 10.2 L7 自动化：接入 cron
 
 配置 cron 实现无人值守：
 
@@ -598,31 +625,31 @@ weights = weights / weights.sum()
 
 同时添加日志轮转与失败通知（可选飞书/邮件）。
 
-### 10.2 L6 Feedback Harness：在线化
+### 10.3 L6 Feedback Harness：在线化
 
 让 `feedback_harness.py` 支持 `--auto` 模式：自动扫描 `memory/eval/` 中最新的 walk-forward 结果，识别新增日期，增量更新 `memory/weights/` 与 `memory/prompt_adaptations/latest.md`。
 
-### 10.3 L6 Feedback Harness：分行业命中率反馈
+### 10.4 L6 Feedback Harness：分行业命中率反馈
 
 新增 `scripts/sector_tracker.py`，计算最近 N 期每个行业的方向准确率与超额收益，输出到 `memory/sector_tracker/latest.json`，供 agent 调整行业配置。
 
-### 10.4 L4 Agent：置信度校准
+### 10.5 L4 Agent：置信度校准
 
 统计 agent 给出的 `high/medium/low` 置信度与实际收益的关系。若 `high` 置信度股票实际命中率 < 60%，在 prompt 中提示收紧「high」标准。
 
-### 10.5 L5 评估：加入交易成本
+### 10.6 L5 评估：加入交易成本
 
 在 `evaluate.py` 中扣除 0.1% 单边印花税 + 0.02% 双边佣金 + 滑点，使回测更接近真实收益。
 
-### 10.6 L5 评估：扩展回测样本
+### 10.7 L5 评估：扩展回测样本
 
 运行 `walkforward.py` 覆盖 2024-2025 年更多月份，至少达到 12 个月以上样本，覆盖不同市场环境。
 
-### 10.7 L3 风控：行业市值权重控制
+### 10.8 L3 风控：行业市值权重控制
 
 在 `screen.py` 中按 `total_mv` 计算行业市值权重，单一行业权重超过 40% 时截断，替代当前的数量控制。
 
-### 10.8 L2 策略：调优 quality_growth
+### 10.9 L2 策略：调优 quality_growth
 
 针对 `quality_growth` 在回测中持续偏弱的问题，通过网格搜索调整其 pass1/pass2 权重与过滤阈值，或将其触发条件限制在财报密集披露期。
 
