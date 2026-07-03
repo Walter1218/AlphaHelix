@@ -12,13 +12,6 @@ from pathlib import Path
 import tushare as ts
 import pandas as pd
 
-TOKEN = os.environ.get("TUSHARE_TOKEN")
-if not TOKEN:
-    raise RuntimeError("TUSHARE_TOKEN is not set")
-
-ts.set_token(TOKEN)
-pro = ts.pro_api()
-
 # 缓存目录
 CACHE_DIR = Path(os.environ.get("ALPHAHELIX_CACHE_DIR", ".cache/tushare"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -26,6 +19,21 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # 限流：每秒最多 1 次调用（免费用户保守设置）
 RATE_LIMIT_INTERVAL = float(os.environ.get("ALPHAHELIX_RATE_LIMIT", "1.0"))
 _last_call_time = 0.0
+
+# 延迟初始化的 Tushare pro_api 实例
+_pro = None
+
+
+def _get_pro():
+    """延迟初始化并返回 Tushare pro_api 实例。"""
+    global _pro
+    if _pro is None:
+        token = os.environ.get("TUSHARE_TOKEN")
+        if not token:
+            raise RuntimeError("TUSHARE_TOKEN is not set")
+        ts.set_token(token)
+        _pro = ts.pro_api()
+    return _pro
 
 
 def _rate_limit():
@@ -56,7 +64,7 @@ def tushare_call(api_name: str, params: dict, use_cache: bool = True) -> pd.Data
             return pd.DataFrame(cached["data"].get("items", []), columns=cached["data"].get("fields", []))
 
     _rate_limit()
-    resp = pro.query(api_name=api_name, **params)
+    resp = _get_pro().query(api_name=api_name, **params)
 
     # tushare pro_api().query 通常直接返回 DataFrame
     if resp is None:
