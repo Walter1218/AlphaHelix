@@ -1,0 +1,127 @@
+{
+  "date": "20250228",
+  "exit_date": "20250314",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.02995,
+  "portfolio_return": 0.018247,
+  "excess_return": -0.011703,
+  "direction_accuracy": 0.7,
+  "top3_hit_rate": 0.6667,
+  "portfolio_max_drawdown": -0.017438,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "601668.SH",
+      "name": "中国建筑",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 5.48,
+      "exit_price": 5.48,
+      "abs_return": 0.0,
+      "excess_return": -0.02995,
+      "max_drawdown": -0.027372
+    },
+    {
+      "ts_code": "600015.SH",
+      "name": "华夏银行",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 7.22,
+      "exit_price": 7.61,
+      "abs_return": 0.054017,
+      "excess_return": 0.024066,
+      "max_drawdown": -0.023384
+    },
+    {
+      "ts_code": "600919.SH",
+      "name": "江苏银行",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 9.13,
+      "exit_price": 9.24,
+      "abs_return": 0.012048,
+      "excess_return": -0.017902,
+      "max_drawdown": -0.026399
+    },
+    {
+      "ts_code": "601009.SH",
+      "name": "南京银行",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 10.1,
+      "exit_price": 10.19,
+      "abs_return": 0.008911,
+      "excess_return": -0.021039,
+      "max_drawdown": -0.01472
+    },
+    {
+      "ts_code": "601818.SH",
+      "name": "光大银行",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 3.76,
+      "exit_price": 3.86,
+      "abs_return": 0.026596,
+      "excess_return": -0.003355,
+      "max_drawdown": -0.028571
+    },
+    {
+      "ts_code": "601186.SH",
+      "name": "中国铁建",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 8.41,
+      "exit_price": 8.36,
+      "abs_return": -0.005945,
+      "excess_return": -0.035896,
+      "max_drawdown": -0.02497
+    },
+    {
+      "ts_code": "601390.SH",
+      "name": "中国中铁",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 5.91,
+      "exit_price": 5.89,
+      "abs_return": -0.003384,
+      "excess_return": -0.033334,
+      "max_drawdown": -0.023689
+    },
+    {
+      "ts_code": "601169.SH",
+      "name": "北京银行",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 5.84,
+      "exit_price": 5.9,
+      "abs_return": 0.010274,
+      "excess_return": -0.019676,
+      "max_drawdown": -0.026756
+    },
+    {
+      "ts_code": "002142.SZ",
+      "name": "宁波银行",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 24.28,
+      "exit_price": 25.8,
+      "abs_return": 0.062603,
+      "excess_return": 0.032653,
+      "max_drawdown": -0.019878
+    },
+    {
+      "ts_code": "600926.SH",
+      "name": "杭州银行",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 14.41,
+      "exit_price": 14.66,
+      "abs_return": 0.017349,
+      "excess_return": -0.012601,
+      "max_drawdown": -0.00813
+    }
+  ],
+  "candidates": 10,
+  "strategy": "contrarian"
+}

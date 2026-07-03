@@ -1,0 +1,19 @@
+{
+  "name": "alphahelix",
+  "version": "0.1.0",
+  "description": "A-share intelligent stock picker powered by HelixAgent + Tushare",
+  "type": "module",
+  "scripts": {
+    "screen": "bun run scripts/daily-screen.ts",
+    "evaluate": "bun run scripts/evaluate-picks.ts",
+    "screen:python": "python scripts/screen.py"
+  },
+  "dependencies": {
+    "dotenv": "^17.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}

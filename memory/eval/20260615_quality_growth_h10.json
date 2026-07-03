@@ -1,0 +1,127 @@
+{
+  "date": "20260615",
+  "exit_date": "20260630",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.017932,
+  "portfolio_return": 0.003898,
+  "excess_return": -0.014034,
+  "direction_accuracy": 0.4,
+  "top3_hit_rate": 0.0,
+  "portfolio_max_drawdown": -0.090078,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "601899.SH",
+      "name": "紫金矿业",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 31.31,
+      "exit_price": 25.14,
+      "abs_return": -0.197062,
+      "excess_return": -0.214994,
+      "max_drawdown": -0.198339
+    },
+    {
+      "ts_code": "603993.SH",
+      "name": "洛阳钼业",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 20.92,
+      "exit_price": 17.55,
+      "abs_return": -0.16109,
+      "excess_return": -0.179022,
+      "max_drawdown": -0.203695
+    },
+    {
+      "ts_code": "601138.SH",
+      "name": "工业富联",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 73.4,
+      "exit_price": 72.15,
+      "abs_return": -0.01703,
+      "excess_return": -0.034962,
+      "max_drawdown": -0.11752
+    },
+    {
+      "ts_code": "600183.SH",
+      "name": "生益科技",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 166.41,
+      "exit_price": 173.4,
+      "abs_return": 0.042005,
+      "excess_return": 0.024072,
+      "max_drawdown": -0.090136
+    },
+    {
+      "ts_code": "600549.SH",
+      "name": "厦门钨业",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 71.28,
+      "exit_price": 85.2,
+      "abs_return": 0.195286,
+      "excess_return": 0.177354,
+      "max_drawdown": -0.121376
+    },
+    {
+      "ts_code": "600176.SH",
+      "name": "中国巨石",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 45.77,
+      "exit_price": 72.88,
+      "abs_return": 0.592309,
+      "excess_return": 0.574377,
+      "max_drawdown": -0.042364
+    },
+    {
+      "ts_code": "601600.SH",
+      "name": "中国铝业",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 10.67,
+      "exit_price": 8.22,
+      "abs_return": -0.229616,
+      "excess_return": -0.247548,
+      "max_drawdown": -0.229616
+    },
+    {
+      "ts_code": "600030.SH",
+      "name": "中信证券",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 26.86,
+      "exit_price": 28.73,
+      "abs_return": 0.06962,
+      "excess_return": 0.051688,
+      "max_drawdown": -0.042788
+    },
+    {
+      "ts_code": "000630.SZ",
+      "name": "铜陵有色",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 7.66,
+      "exit_price": 6.36,
+      "abs_return": -0.169713,
+      "excess_return": -0.187645,
+      "max_drawdown": -0.215637
+    },
+    {
+      "ts_code": "600362.SH",
+      "name": "江西铜业",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 47.36,
+      "exit_price": 43.3,
+      "abs_return": -0.085726,
+      "excess_return": -0.103659,
+      "max_drawdown": -0.227306
+    }
+  ],
+  "candidates": 10,
+  "strategy": "quality_growth"
+}

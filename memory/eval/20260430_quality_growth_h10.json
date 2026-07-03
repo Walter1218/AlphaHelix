@@ -1,0 +1,127 @@
+{
+  "date": "20260430",
+  "exit_date": "20260519",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.009481,
+  "portfolio_return": 0.026106,
+  "excess_return": 0.016625,
+  "direction_accuracy": 0.4,
+  "top3_hit_rate": 0.0,
+  "portfolio_max_drawdown": -0.0545,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "688256.SH",
+      "name": "寒武纪",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 1699.96,
+      "exit_price": 1319.2,
+      "abs_return": -0.223982,
+      "excess_return": -0.233462,
+      "max_drawdown": -0.366954
+    },
+    {
+      "ts_code": "603799.SH",
+      "name": "华友钴业",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 66.59,
+      "exit_price": 57.6,
+      "abs_return": -0.135005,
+      "excess_return": -0.144486,
+      "max_drawdown": -0.155425
+    },
+    {
+      "ts_code": "603993.SH",
+      "name": "洛阳钼业",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 18.62,
+      "exit_price": 18.18,
+      "abs_return": -0.023631,
+      "excess_return": -0.033111,
+      "max_drawdown": -0.133873
+    },
+    {
+      "ts_code": "600183.SH",
+      "name": "生益科技",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 76.51,
+      "exit_price": 100.78,
+      "abs_return": 0.317213,
+      "excess_return": 0.307733,
+      "max_drawdown": -0.044914
+    },
+    {
+      "ts_code": "301308.SZ",
+      "name": "江波龙",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 401.12,
+      "exit_price": 562.43,
+      "abs_return": 0.402149,
+      "excess_return": 0.392668,
+      "max_drawdown": -0.080847
+    },
+    {
+      "ts_code": "600150.SH",
+      "name": "中国船舶",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 41.76,
+      "exit_price": 37.49,
+      "abs_return": -0.102251,
+      "excess_return": -0.111732,
+      "max_drawdown": -0.102466
+    },
+    {
+      "ts_code": "601138.SH",
+      "name": "工业富联",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 62.88,
+      "exit_price": 68.56,
+      "abs_return": 0.090331,
+      "excess_return": 0.08085,
+      "max_drawdown": -0.045455
+    },
+    {
+      "ts_code": "002466.SZ",
+      "name": "天齐锂业",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 80.03,
+      "exit_price": 66.58,
+      "abs_return": -0.168062,
+      "excess_return": -0.177543,
+      "max_drawdown": -0.185167
+    },
+    {
+      "ts_code": "600989.SH",
+      "name": "宝丰能源",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 30.7,
+      "exit_price": 28.09,
+      "abs_return": -0.085016,
+      "excess_return": -0.094497,
+      "max_drawdown": -0.100326
+    },
+    {
+      "ts_code": "002384.SZ",
+      "name": "东山精密",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 186.73,
+      "exit_price": 222.08,
+      "abs_return": 0.189311,
+      "excess_return": 0.17983,
+      "max_drawdown": -0.078822
+    }
+  ],
+  "candidates": 10,
+  "strategy": "quality_growth"
+}

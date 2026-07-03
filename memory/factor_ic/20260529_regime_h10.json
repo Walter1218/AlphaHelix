@@ -1,0 +1,20 @@
+{
+  "n": 10,
+  "date": "20260529",
+  "mom_20": 0.0788,
+  "mom_60": -0.4424,
+  "pe": 0.1515,
+  "pb": -0.0909,
+  "ps": -0.0667,
+  "dv_ratio": -0.1315,
+  "roe": -0.1394,
+  "revenue_growth": -0.4061,
+  "profit_growth": -0.5394,
+  "ocf_growth": -0.1273,
+  "net_mf_5d": 0.4061,
+  "net_mf_20d": 0.3939,
+  "net_mf_ratio": 0.4909,
+  "avg_amount_20": 0.0788,
+  "volatility_20": -0.0545,
+  "total_mv": -0.0545
+}

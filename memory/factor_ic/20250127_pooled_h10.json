@@ -1,0 +1,20 @@
+{
+  "n": 10,
+  "date": "20250127",
+  "mom_20": -0.6364,
+  "mom_60": -0.3333,
+  "pe": 0.297,
+  "pb": 0.2,
+  "ps": 0.0424,
+  "dv_ratio": 0.2242,
+  "roe": 0.2485,
+  "revenue_growth": -0.3212,
+  "profit_growth": -0.2848,
+  "ocf_growth": -0.2,
+  "net_mf_5d": -0.6242,
+  "net_mf_20d": -0.7333,
+  "net_mf_ratio": -0.4061,
+  "avg_amount_20": -0.3212,
+  "volatility_20": 0.503,
+  "total_mv": 0.3697
+}

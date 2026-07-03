@@ -1,0 +1,129 @@
+{
+  "date": "20250530",
+  "exit_date": "20250616",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.00874,
+  "portfolio_return": 0.062059,
+  "excess_return": 0.05332,
+  "direction_accuracy": 0.8,
+  "top3_hit_rate": 0.6667,
+  "portfolio_max_drawdown": -0.004096,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "600926.SH",
+      "name": "杭州银行",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 16.66,
+      "exit_price": 16.59,
+      "abs_return": -0.004202,
+      "excess_return": -0.012941,
+      "max_drawdown": -0.026082
+    },
+    {
+      "ts_code": "300476.SZ",
+      "name": "胜宏科技",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 86.48,
+      "exit_price": 111.9,
+      "abs_return": 0.293941,
+      "excess_return": 0.285201,
+      "max_drawdown": -0.016304
+    },
+    {
+      "ts_code": "601319.SH",
+      "name": "中国人保",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 8.27,
+      "exit_price": 8.71,
+      "abs_return": 0.053204,
+      "excess_return": 0.044465,
+      "max_drawdown": -0.01432
+    },
+    {
+      "ts_code": "601919.SH",
+      "name": "中远海控",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 16.39,
+      "exit_price": 16.12,
+      "abs_return": -0.016473,
+      "excess_return": -0.025213,
+      "max_drawdown": -0.029286
+    },
+    {
+      "ts_code": "601009.SH",
+      "name": "南京银行",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 11.46,
+      "exit_price": 11.82,
+      "abs_return": 0.031414,
+      "excess_return": 0.022674,
+      "max_drawdown": -0.023499
+    },
+    {
+      "ts_code": "601916.SH",
+      "name": "浙商银行",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 3.22,
+      "exit_price": 3.44,
+      "abs_return": 0.068323,
+      "excess_return": 0.059583,
+      "max_drawdown": -0.012158
+    },
+    {
+      "ts_code": "600000.SH",
+      "name": "浦发银行",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 12.33,
+      "exit_price": 12.58,
+      "abs_return": 0.020276,
+      "excess_return": 0.011536,
+      "max_drawdown": -0.018341
+    },
+    {
+      "ts_code": "601601.SH",
+      "name": "中国太保",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 34.43,
+      "exit_price": 36.49,
+      "abs_return": 0.059832,
+      "excess_return": 0.051092,
+      "max_drawdown": -0.010496
+    },
+    {
+      "ts_code": "601838.SH",
+      "name": "成都银行",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 19.39,
+      "exit_price": 19.6,
+      "abs_return": 0.01083,
+      "excess_return": 0.002091,
+      "max_drawdown": -0.012893
+    },
+    {
+      "ts_code": "600016.SH",
+      "name": "民生银行",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 4.35,
+      "exit_price": 4.8,
+      "abs_return": 0.103448,
+      "excess_return": 0.094708,
+      "max_drawdown": -0.011111
+    }
+  ],
+  "candidates": 10,
+  "strategy": "momentum_value_hybrid",
+  "regime": "range",
+  "regime_reason": "ma20_slope=0.42%, ret_20d=1.8%, vol=10.2%"
+}

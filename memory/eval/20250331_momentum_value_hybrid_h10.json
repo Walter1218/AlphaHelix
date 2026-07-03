@@ -1,0 +1,127 @@
+{
+  "date": "20250331",
+  "exit_date": "20250415",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": -0.032431,
+  "portfolio_return": -0.03373,
+  "excess_return": -0.001299,
+  "direction_accuracy": 0.1,
+  "top3_hit_rate": 0.0,
+  "portfolio_max_drawdown": -0.10694,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "000333.SZ",
+      "name": "美的集团",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 78.5,
+      "exit_price": 71.48,
+      "abs_return": -0.089427,
+      "excess_return": -0.056995,
+      "max_drawdown": -0.144204
+    },
+    {
+      "ts_code": "000651.SZ",
+      "name": "格力电器",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 45.46,
+      "exit_price": 44.86,
+      "abs_return": -0.013198,
+      "excess_return": 0.019233,
+      "max_drawdown": -0.047514
+    },
+    {
+      "ts_code": "601336.SH",
+      "name": "新华保险",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 51.5,
+      "exit_price": 48.16,
+      "abs_return": -0.064854,
+      "excess_return": -0.032423,
+      "max_drawdown": -0.091729
+    },
+    {
+      "ts_code": "002594.SZ",
+      "name": "比亚迪",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 374.9,
+      "exit_price": 359.97,
+      "abs_return": -0.039824,
+      "excess_return": -0.007393,
+      "max_drawdown": -0.141744
+    },
+    {
+      "ts_code": "601919.SH",
+      "name": "中远海控",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 14.55,
+      "exit_price": 14.26,
+      "abs_return": -0.019931,
+      "excess_return": 0.0125,
+      "max_drawdown": -0.126799
+    },
+    {
+      "ts_code": "603993.SH",
+      "name": "洛阳钼业",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 7.6,
+      "exit_price": 6.8,
+      "abs_return": -0.105263,
+      "excess_return": -0.072832,
+      "max_drawdown": -0.190789
+    },
+    {
+      "ts_code": "600015.SH",
+      "name": "华夏银行",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 7.83,
+      "exit_price": 7.83,
+      "abs_return": 0.0,
+      "excess_return": 0.032431,
+      "max_drawdown": -0.065574
+    },
+    {
+      "ts_code": "600415.SH",
+      "name": "小商品城",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 15.23,
+      "exit_price": 14.6,
+      "abs_return": -0.041366,
+      "excess_return": -0.008934,
+      "max_drawdown": -0.216634
+    },
+    {
+      "ts_code": "601077.SH",
+      "name": "渝农商行",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 6.08,
+      "exit_price": 6.46,
+      "abs_return": 0.0625,
+      "excess_return": 0.094931,
+      "max_drawdown": -0.064935
+    },
+    {
+      "ts_code": "601899.SH",
+      "name": "紫金矿业",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 18.12,
+      "exit_price": 17.65,
+      "abs_return": -0.025938,
+      "excess_return": 0.006493,
+      "max_drawdown": -0.149558
+    }
+  ],
+  "candidates": 10,
+  "strategy": "momentum_value_hybrid"
+}

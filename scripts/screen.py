@@ -1,0 +1,598 @@
+"""
+AlphaHelix 因子初筛脚本
+支持多策略：momentum_value_hybrid、quality_growth、contrarian、event_driven。
+基于 Tushare 数据计算动量、估值、质量、资金、流动性、事件、反转、行业相对强度因子，输出候选股票池。
+"""
+import sys
+import os
+import json
+import warnings
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+# 把 scripts 目录加入路径以导入本地模块
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _tushare_utils import tushare_call, get_trade_date_before, is_st_historical
+from market_regime import classify_regime, regime_to_strategy
+
+warnings.filterwarnings("ignore")
+
+# 默认值
+MIN_AVG_AMOUNT = 50000
+MAX_VOLATILITY = 0.07
+LIST_DAYS_MIN = 120
+UNIVERSE_SAMPLE = int(os.environ.get("AH_UNIVERSE_SAMPLE", 400))
+PASS1_TOP_K = int(os.environ.get("AH_PASS1_TOP_K", 80))      # 第一轮初筛后进入第二轮深度计算的候选数
+MIN_ROE = 0.05        # ROE 过滤阈值
+MAX_SECTOR_PCT = 0.40 # 单一行业权重上限
+SKIP_ST_CHECK = os.environ.get("AH_SKIP_ST_CHECK", "").lower() in ("1", "true", "yes")
+
+
+STRATEGIES = {
+    "momentum_value_hybrid": {
+        "description": "趋势向上时，买入低估值高动量蓝筹",
+        "pass1": {
+            "filters": {"min_amount": 50000, "max_volatility": 0.07},
+            "weights": {
+                "mom_20": 0.30, "mom_60": 0.20,
+                "ep": 0.15, "bp": 0.15,
+                "size": 0.10, "liquidity": 0.10,
+            },
+        },
+        "pass2": {
+            "filters": {"min_roe": 0.05},
+            "weights": {
+                "mom_20": 0.25, "mom_60": 0.10,
+                "ep": 0.10, "bp": 0.10, "sp": 0.05,
+                "roe": 0.10, "profit_growth": 0.05, "revenue_growth": 0.05,
+                "net_mf_5d": 0.10, "net_mf_ratio": 0.05,
+                "liquidity": 0.05,
+            },
+        },
+    },
+    "quality_growth": {
+        "description": "财报季或震荡市，买入高 ROE + 高成长标的",
+        "pass1": {
+            "filters": {"min_amount": 50000, "max_volatility": 0.08},
+            "weights": {
+                "mom_20": 0.20, "mom_60": 0.10,
+                "ep": 0.10, "bp": 0.10,
+                "size": 0.05, "liquidity": 0.15,
+                "sp": 0.15, "dividend": 0.15,
+            },
+        },
+        "pass2": {
+            "filters": {"min_roe": 0.08, "min_profit_growth": 0.10},
+            "weights": {
+                "roe": 0.25, "profit_growth": 0.20, "revenue_growth": 0.10, "ocf_growth": 0.10,
+                "ep": 0.10, "bp": 0.05,
+                "net_mf_5d": 0.05, "net_mf_ratio": 0.05,
+                "liquidity": 0.05, "mom_20": 0.05,
+            },
+        },
+    },
+    "contrarian": {
+        "description": "大盘急跌后，买入超跌但基本面稳健标的",
+        "pass1": {
+            "filters": {"min_amount": 30000, "max_volatility": 0.10, "max_mom_60": 0.05},
+            "weights": {
+                "bp": 0.18, "ep": 0.13, "sp": 0.08,
+                "dividend": 0.08, "liquidity": 0.08,
+                "mom_20": -0.10, "mom_60": -0.05,
+                "mom_5": 0.05, "reversal_score": 0.15,
+                "sector_momentum": 0.05, "relative_to_sector": 0.05,
+            },
+        },
+        "pass2": {
+            "filters": {"min_roe": 0.03},
+            "weights": {
+                "bp": 0.18, "ep": 0.13, "roe": 0.08, "profit_growth": 0.08,
+                "net_mf_5d": 0.10,
+                "mom_20": -0.10, "mom_60": -0.05,
+                "mom_5": 0.05, "reversal_score": 0.15,
+                "sector_momentum": 0.05, "relative_to_sector": 0.05,
+                "liquidity": 0.05,
+            },
+        },
+    },
+    "event_driven": {
+        "description": "基于业绩预告/快报超预期与短期资金共振的事件驱动策略",
+        "pass1": {
+            "filters": {"min_amount": 50000, "max_volatility": 0.10},
+            "weights": {
+                "mom_20": 0.15, "mom_60": 0.05,
+                "ep": 0.10, "bp": 0.10,
+                "liquidity": 0.15, "size": 0.05,
+                "net_mf_ratio": 0.10,
+                "sector_momentum": 0.05,
+            },
+        },
+        "pass2": {
+            "filters": {},
+            "weights": {
+                "forecast_type_score": 0.28,
+                "forecast_pchange_mid": 0.18,
+                "express_diluted_roe": 0.12,
+                "net_mf_5d": 0.10,
+                "net_mf_ratio": 0.10,
+                "mom_20": 0.05,
+                "ep": 0.05,
+                "liquidity": 0.05,
+                "sector_momentum": 0.05,
+            },
+        },
+    },
+}
+
+
+def safe_float(value, default=np.nan):
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def rank_fill(s: pd.Series) -> pd.Series:
+    """百分位排名并填充缺失值为 0.5。"""
+    return s.rank(pct=True).fillna(0.5)
+
+
+def compute_price_factors(df_daily: pd.DataFrame) -> dict:
+    if df_daily is None or len(df_daily) < 60:
+        return {}
+
+    df = df_daily.sort_values("trade_date").reset_index(drop=True)
+    close = df["close"].astype(float)
+    amount = df["amount"].astype(float)
+    returns = close.pct_change().dropna()
+
+    mom_5 = (close.iloc[-1] / close.iloc[-5]) - 1
+    mom_20 = (close.iloc[-1] / close.iloc[-20]) - 1
+    mom_60 = (close.iloc[-1] / close.iloc[-60]) - 1
+    volatility_20 = returns.tail(20).std()
+    avg_amount_20 = amount.tail(20).mean()
+    avg_amount_5 = amount.tail(5).mean()
+    amount_ratio_5d = avg_amount_5 / avg_amount_20 if avg_amount_20 > 0 else 1.0
+
+    # 反转打分：短期跌幅越深、近期有放量反弹，分数越高
+    reversal_score = -(mom_20) * (1 + mom_5) * amount_ratio_5d
+
+    return {
+        "mom_5": mom_5,
+        "mom_20": mom_20,
+        "mom_60": mom_60,
+        "volatility_20": volatility_20,
+        "avg_amount_20": avg_amount_20,
+        "amount_ratio_5d": amount_ratio_5d,
+        "reversal_score": reversal_score,
+    }
+
+
+def fetch_fina_factors(ts_code: str, trade_date: str) -> dict:
+    """获取最近已披露财务指标因子，严格校验 ann_date <= trade_date，避免财报穿越。失败返回空 dict。"""
+    try:
+        df = tushare_call("fina_indicator", {"ts_code": ts_code})
+        if df.empty:
+            return {}
+        df["ann_date"] = df["ann_date"].fillna("").astype(str)
+        df = df[df["ann_date"] <= trade_date]
+        if df.empty:
+            return {}
+        row = df.sort_values("ann_date", ascending=False).iloc[0]
+        return {
+            "roe": safe_float(row.get("roe"), np.nan),
+            "roa": safe_float(row.get("roa"), np.nan),
+            "grossprofit_margin": safe_float(row.get("grossprofit_margin"), np.nan),
+            "revenue_growth": safe_float(row.get("tr_yoy"), np.nan),
+            "profit_growth": safe_float(row.get("netprofit_yoy"), np.nan),
+            "ocf_growth": safe_float(row.get("ocf_yoy"), np.nan),
+        }
+    except Exception:
+        return {}
+
+
+def fetch_fund_factors(ts_code: str, start_date: str, end_date: str) -> dict:
+    """获取资金流向因子，失败返回空 dict。"""
+    try:
+        df = tushare_call("moneyflow", {"ts_code": ts_code, "start_date": start_date, "end_date": end_date})
+        if df.empty or len(df) < 5:
+            return {}
+        df = df.sort_values("trade_date")
+        df["net_mf_amount"] = pd.to_numeric(df.get("net_mf_amount", 0), errors="coerce").fillna(0)
+        amount_cols = [c for c in df.columns if "_amount" in c and c != "net_mf_amount"]
+        df["gross_amount"] = df[amount_cols].sum(axis=1)
+        net_mf_5d = df["net_mf_amount"].tail(5).sum()
+        net_mf_20d = df["net_mf_amount"].tail(20).sum()
+        gross_5d = df["gross_amount"].tail(5).sum()
+        net_mf_ratio = net_mf_5d / gross_5d if gross_5d > 0 else 0
+        return {
+            "net_mf_5d": net_mf_5d,
+            "net_mf_20d": net_mf_20d,
+            "net_mf_ratio": net_mf_ratio,
+        }
+    except Exception:
+        return {}
+
+
+FORECAST_TYPE_SCORE = {
+    "预增": 2.0,
+    "略增": 1.0,
+    "扭亏": 2.0,
+    "续盈": 0.5,
+    "预减": -1.0,
+    "略减": -0.5,
+    "首亏": -2.0,
+    "续亏": -1.5,
+    "不确定": 0.0,
+    "减亏": 0.5,
+    "增亏": -0.5,
+}
+
+# 业绩预告/快报 freshness：超过该天数的旧公告视为失效，不参与打分
+EVENT_LOOKBACK_DAYS = 120
+
+
+def _event_within_window(ann_date: str, trade_date: str, window_days: int = EVENT_LOOKBACK_DAYS) -> bool:
+    """判断公告日期是否在 trade_date 前 window_days 天内。"""
+    try:
+        ann = datetime.strptime(ann_date, "%Y%m%d")
+        base = datetime.strptime(trade_date, "%Y%m%d")
+        return (base - ann).days <= window_days
+    except Exception:
+        return False
+
+
+def fetch_forecast_factor(ts_code: str, trade_date: str) -> dict:
+    """获取业绩预告因子，严格校验 ann_date <= trade_date 且处于有效窗口内。失败返回空 dict。"""
+    try:
+        df = tushare_call("forecast", {"ts_code": ts_code})
+        if df.empty:
+            return {}
+        df["ann_date"] = df["ann_date"].fillna("").astype(str)
+        df = df[df["ann_date"] <= trade_date]
+        df = df[df["ann_date"].apply(lambda d: _event_within_window(d, trade_date, EVENT_LOOKBACK_DAYS))]
+        if df.empty:
+            return {}
+        row = df.sort_values("ann_date", ascending=False).iloc[0]
+        type_score = FORECAST_TYPE_SCORE.get(str(row.get("type")), 0.0)
+        pmin = safe_float(row.get("p_change_min"), np.nan)
+        pmax = safe_float(row.get("p_change_max"), np.nan)
+        pchange_mid = (pmin + pmax) / 2.0 if pd.notna(pmin) and pd.notna(pmax) else np.nan
+        return {
+            "forecast_type_score": type_score,
+            "forecast_pchange_mid": pchange_mid,
+        }
+    except Exception:
+        return {}
+
+
+def fetch_express_factor(ts_code: str, trade_date: str) -> dict:
+    """获取业绩快报因子，严格校验 ann_date <= trade_date 且处于有效窗口内。失败返回空 dict。"""
+    try:
+        df = tushare_call("express", {"ts_code": ts_code})
+        if df.empty:
+            return {}
+        df["ann_date"] = df["ann_date"].fillna("").astype(str)
+        df = df[df["ann_date"] <= trade_date]
+        df = df[df["ann_date"].apply(lambda d: _event_within_window(d, trade_date, EVENT_LOOKBACK_DAYS))]
+        if df.empty:
+            return {}
+        row = df.sort_values("ann_date", ascending=False).iloc[0]
+        diluted_roe = safe_float(row.get("diluted_roe"), np.nan)
+        diluted_eps = safe_float(row.get("diluted_eps"), np.nan)
+        return {
+            "express_diluted_roe": diluted_roe,
+            "express_diluted_eps": diluted_eps,
+        }
+    except Exception:
+        return {}
+
+
+def build_universe(date: str) -> pd.DataFrame:
+    """构建股票池：剔除次新股，合并 daily_basic。"""
+    df_basic = tushare_call("stock_basic", {"exchange": "", "list_status": "L"})
+    df_basic = df_basic[df_basic["ts_code"].str.endswith((".SH", ".SZ"))]
+
+    df_basic["list_dt"] = pd.to_datetime(df_basic["list_date"], format="%Y%m%d")
+    cutoff = datetime.strptime(date, "%Y%m%d") - pd.Timedelta(days=LIST_DAYS_MIN)
+    df_basic = df_basic[df_basic["list_dt"] <= cutoff]
+
+    df_daily_basic = tushare_call("daily_basic", {"trade_date": date})
+    df = df_basic.merge(df_daily_basic, on="ts_code", how="inner")
+
+    df["total_mv"] = pd.to_numeric(df.get("total_mv", 0), errors="coerce").fillna(0)
+    df["pe"] = pd.to_numeric(df.get("pe", np.nan), errors="coerce")
+    df["pb"] = pd.to_numeric(df.get("pb", np.nan), errors="coerce")
+    df["ps"] = pd.to_numeric(df.get("ps", np.nan), errors="coerce")
+    df["dv_ratio"] = pd.to_numeric(df.get("dv_ratio", np.nan), errors="coerce")
+
+    df = df.sort_values("total_mv", ascending=False).head(UNIVERSE_SAMPLE)
+    return df
+
+
+def _factor_series(df: pd.DataFrame, factor: str) -> pd.Series:
+    """根据因子名返回标准化的打分序列。"""
+    if factor == "ep":
+        return rank_fill(1 / df["pe"].replace(0, np.nan))
+    if factor == "bp":
+        return rank_fill(1 / df["pb"].replace(0, np.nan))
+    if factor == "sp":
+        return rank_fill(1 / df["ps"].replace(0, np.nan))
+    if factor == "dividend":
+        return rank_fill(df["dv_ratio"])
+    if factor == "size":
+        return rank_fill(df["total_mv"])
+    if factor == "liquidity":
+        return rank_fill(df["avg_amount_20"])
+    if factor in df.columns:
+        return rank_fill(df[factor])
+    return pd.Series([0.5] * len(df), index=df.index)
+
+
+def compute_weighted_score(df: pd.DataFrame, weights: dict) -> pd.Series:
+    """按权重计算综合得分。"""
+    score = pd.Series(0.0, index=df.index)
+    for factor, w in weights.items():
+        score += w * _factor_series(df, factor)
+    return score
+
+
+def apply_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
+    """应用 pass 级别的过滤条件。"""
+    if "min_amount" in filters:
+        df = df[df["avg_amount_20"] >= filters["min_amount"]]
+    if "max_volatility" in filters:
+        df = df[df["volatility_20"] <= filters["max_volatility"]]
+    if "min_mom_20" in filters:
+        df = df[df["mom_20"] >= filters["min_mom_20"]]
+    if "max_mom_20" in filters:
+        df = df[df["mom_20"] <= filters["max_mom_20"]]
+    if "min_mom_60" in filters:
+        df = df[df["mom_60"] >= filters["min_mom_60"]]
+    if "max_mom_60" in filters:
+        df = df[df["mom_60"] <= filters["max_mom_60"]]
+    if "min_roe" in filters:
+        df = df[df["roe"] >= filters["min_roe"]]
+    if "min_profit_growth" in filters:
+        df = df[df["profit_growth"] >= filters["min_profit_growth"]]
+    if "min_revenue_growth" in filters:
+        df = df[df["revenue_growth"] >= filters["min_revenue_growth"]]
+    return df
+
+
+def add_sector_factors(df: pd.DataFrame, group_col: str = "industry") -> pd.DataFrame:
+    """基于当日截面计算行业相对强度因子。
+
+    注意：行业分类来自 `stock_basic`，为当前分类。历史回测中若股票行业发生过变更，
+    报告中的行业分布可能与历史真实分布存在偏差，因此该因子仅作为辅助参考。
+    """
+    if df.empty or group_col not in df.columns:
+        return df
+
+    df = df.copy()
+    df[group_col] = df[group_col].fillna("未知")
+
+    # 行业动量：行业内成分股平均 mom_20
+    sector_mom = df.groupby(group_col)["mom_20"].transform("mean")
+    df["sector_momentum"] = sector_mom
+    df["relative_to_sector"] = df["mom_20"] - sector_mom
+
+    # 行业内 5 日动量与放量比均值
+    if "mom_5" in df.columns:
+        df["sector_mom5"] = df.groupby(group_col)["mom_5"].transform("mean")
+    if "amount_ratio_5d" in df.columns:
+        df["sector_amount_ratio"] = df.groupby(group_col)["amount_ratio_5d"].transform("mean")
+
+    # 行业数量过滤：样本不足 3 只的行业标记为 NaN，避免单一股票误导行业均值
+    sector_counts = df[group_col].map(df[group_col].value_counts())
+    min_count = 3
+    df.loc[sector_counts < min_count, "sector_momentum"] = np.nan
+    df.loc[sector_counts < min_count, "relative_to_sector"] = np.nan
+    if "sector_mom5" in df.columns:
+        df.loc[sector_counts < min_count, "sector_mom5"] = np.nan
+    if "sector_amount_ratio" in df.columns:
+        df.loc[sector_counts < min_count, "sector_amount_ratio"] = np.nan
+
+    return df
+
+
+def pass1_screen(df_universe: pd.DataFrame, date: str, config: dict) -> pd.DataFrame:
+    """第一轮：用价格 + 估值因子快速筛选，保留 PASS1_TOP_K。"""
+    start_date = get_trade_date_before(date, days=90)
+    end_date = date
+
+    records = []
+    for _, row in df_universe.iterrows():
+        ts_code = row["ts_code"]
+        try:
+            df_price = tushare_call("daily", {"ts_code": ts_code, "start_date": start_date, "end_date": end_date})
+            if date not in df_price["trade_date"].astype(str).values:
+                continue
+            factors = compute_price_factors(df_price)
+            if not factors:
+                continue
+
+            rec = {
+                "ts_code": ts_code,
+                "name": row.get("name", ""),
+                "industry": row.get("industry", ""),
+                "mom_5": factors["mom_5"],
+                "mom_20": factors["mom_20"],
+                "mom_60": factors["mom_60"],
+                "volatility_20": factors["volatility_20"],
+                "avg_amount_20": factors["avg_amount_20"],
+                "amount_ratio_5d": factors["amount_ratio_5d"],
+                "reversal_score": factors["reversal_score"],
+                "pe": safe_float(row.get("pe"), np.nan),
+                "pb": safe_float(row.get("pb"), np.nan),
+                "ps": safe_float(row.get("ps"), np.nan),
+                "dv_ratio": safe_float(row.get("dv_ratio"), np.nan),
+                "total_mv": safe_float(row.get("total_mv"), 0),
+            }
+            records.append(rec)
+        except Exception:
+            continue
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+    filters = config.get("filters", {})
+    df = apply_filters(df, filters)
+    if df.empty:
+        return df
+
+    # 历史 ST/*ST/退市 过滤
+    if not SKIP_ST_CHECK:
+        mask = ~df["ts_code"].apply(lambda x: is_st_historical(x, date))
+        df = df[mask]
+
+    # 行业相对强度（基于 pass1 截面）
+    df = add_sector_factors(df)
+
+    df["pass1_score"] = compute_weighted_score(df, config["weights"])
+    return df.sort_values("pass1_score", ascending=False).head(PASS1_TOP_K)
+
+
+def pass2_enrich(df_pass1: pd.DataFrame, date: str, config: dict) -> pd.DataFrame:
+    """第二轮：对 top 候选补充财务 + 资金因子，重新打分。"""
+    if df_pass1.empty:
+        return df_pass1
+
+    mf_start = get_trade_date_before(date, days=25)
+    mf_end = date
+
+    records = []
+    for _, row in df_pass1.iterrows():
+        ts_code = row["ts_code"]
+        fina = fetch_fina_factors(ts_code, date)
+        fund = fetch_fund_factors(ts_code, mf_start, mf_end)
+        forecast = fetch_forecast_factor(ts_code, date)
+        express = fetch_express_factor(ts_code, date)
+
+        rec = row.to_dict()
+        rec.update(fina)
+        rec.update(fund)
+        rec.update(forecast)
+        rec.update(express)
+        records.append(rec)
+
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+
+    for col in ["pe", "pb", "ps", "dv_ratio", "roe", "revenue_growth", "profit_growth", "ocf_growth",
+                "net_mf_5d", "net_mf_20d", "net_mf_ratio", "avg_amount_20", "total_mv",
+                "mom_5", "amount_ratio_5d", "reversal_score",
+                "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+                "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps"]:
+        if col not in df.columns:
+            df[col] = np.nan
+
+    df = apply_filters(df, config.get("filters", {}))
+    if df.empty:
+        return df
+
+    df["total_score"] = compute_weighted_score(df, config["weights"])
+    return df.sort_values("total_score", ascending=False)
+
+
+def cap_sector_weight(df: pd.DataFrame, top_n: int, max_pct: float = MAX_SECTOR_PCT) -> pd.DataFrame:
+    """限制单一行业入选数量，避免过度集中。"""
+    if df.empty or "industry" not in df.columns:
+        return df
+
+    df = df.copy()
+    df["industry"] = df["industry"].fillna("未知")
+
+    max_per_sector = max(1, int(top_n * max_pct))
+    sector_counts = {}
+    kept = []
+    for _, row in df.iterrows():
+        if len(kept) >= top_n:
+            break
+        sector = row["industry"]
+        if sector_counts.get(sector, 0) >= max_per_sector:
+            continue
+        sector_counts[sector] = sector_counts.get(sector, 0) + 1
+        kept.append(row)
+    return pd.DataFrame(kept)
+
+
+def load_dynamic_weights(strategy: str) -> dict:
+    """从 memory/weights/ 加载动态权重；不存在则返回 None。"""
+    path = Path("memory/weights") / f"{strategy}_latest.json"
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("weights")
+    except Exception:
+        return None
+
+
+def screen(date: str, strategy: str, top_n: int = 50) -> list:
+    """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重。"""
+    actual_strategy = strategy
+    regime_info = None
+    if strategy == "regime":
+        regime_info = classify_regime(date)
+        actual_strategy = regime_to_strategy(regime_info["regime"], available=list(STRATEGIES.keys()))
+
+    if actual_strategy not in STRATEGIES:
+        raise ValueError(f"Unknown strategy: {actual_strategy}. Available: {list(STRATEGIES.keys())} or 'regime'")
+
+    config = {k: (v.copy() if isinstance(v, dict) else v) for k, v in STRATEGIES[actual_strategy].items()}
+    dynamic = load_dynamic_weights(actual_strategy)
+    if dynamic:
+        # 只覆盖与当前策略结构匹配的 pass1/pass2 权重
+        for phase in ("pass1", "pass2"):
+            if phase in dynamic and phase in config and "weights" in config[phase]:
+                config[phase]["weights"] = dynamic[phase]
+                # 如果动态权重带 filters 也可以合并，但默认不覆盖硬编码 filters
+    df_universe = build_universe(date)
+    df_pass1 = pass1_screen(df_universe, date, config["pass1"])
+    df_pass2 = pass2_enrich(df_pass1, date, config["pass2"])
+
+    # 当前 industry 仅用于报告展示，不做量化截断
+    df_result = df_pass2.head(top_n)
+
+    if df_result.empty:
+        return []
+
+    output_cols = [
+        "ts_code", "name", "industry", "total_score",
+        "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
+        "roe", "revenue_growth", "profit_growth", "ocf_growth",
+        "net_mf_5d", "net_mf_20d", "net_mf_ratio",
+        "avg_amount_20", "amount_ratio_5d", "volatility_20", "total_mv",
+        "reversal_score", "sector_momentum", "relative_to_sector",
+        "forecast_type_score", "forecast_pchange_mid",
+        "express_diluted_roe", "express_diluted_eps",
+    ]
+    output_cols = [c for c in output_cols if c in df_result.columns]
+    return df_result[output_cols].to_dict(orient="records")
+
+
+def screen_momentum_value_hybrid(date: str, top_n: int = 50) -> list:
+    return screen(date, "momentum_value_hybrid", top_n)
+
+
+def main():
+    strategy = sys.argv[1] if len(sys.argv) > 1 else "momentum_value_hybrid"
+    date = sys.argv[2] if len(sys.argv) > 2 else datetime.now().strftime("%Y%m%d")
+    top_n = int(sys.argv[3]) if len(sys.argv) > 3 else 50
+
+    candidates = screen(date, strategy, top_n)
+    print(json.dumps(candidates, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,127 @@
+{
+  "date": "20260430",
+  "exit_date": "20260519",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.009481,
+  "portfolio_return": 0.022056,
+  "excess_return": 0.012575,
+  "direction_accuracy": 0.5,
+  "top3_hit_rate": 0.3333,
+  "portfolio_max_drawdown": -0.068831,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "600150.SH",
+      "name": "中国船舶",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 41.76,
+      "exit_price": 37.49,
+      "abs_return": -0.102251,
+      "excess_return": -0.111732,
+      "max_drawdown": -0.102466
+    },
+    {
+      "ts_code": "688256.SH",
+      "name": "寒武纪",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 1699.96,
+      "exit_price": 1319.2,
+      "abs_return": -0.223982,
+      "excess_return": -0.233462,
+      "max_drawdown": -0.366954
+    },
+    {
+      "ts_code": "001309.SZ",
+      "name": "德明利",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 524.81,
+      "exit_price": 699.16,
+      "abs_return": 0.332215,
+      "excess_return": 0.322735,
+      "max_drawdown": -0.048814
+    },
+    {
+      "ts_code": "002466.SZ",
+      "name": "天齐锂业",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 80.03,
+      "exit_price": 66.58,
+      "abs_return": -0.168062,
+      "excess_return": -0.177543,
+      "max_drawdown": -0.185167
+    },
+    {
+      "ts_code": "002709.SZ",
+      "name": "天赐材料",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 60.51,
+      "exit_price": 54.44,
+      "abs_return": -0.100314,
+      "excess_return": -0.109795,
+      "max_drawdown": -0.149375
+    },
+    {
+      "ts_code": "688498.SH",
+      "name": "源杰科技",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 1571.0,
+      "exit_price": 1068.0,
+      "abs_return": -0.320178,
+      "excess_return": -0.329659,
+      "max_drawdown": -0.388746
+    },
+    {
+      "ts_code": "300604.SZ",
+      "name": "长川科技",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 174.2,
+      "exit_price": 224.05,
+      "abs_return": 0.286165,
+      "excess_return": 0.276685,
+      "max_drawdown": -0.083904
+    },
+    {
+      "ts_code": "002384.SZ",
+      "name": "东山精密",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 186.73,
+      "exit_price": 222.08,
+      "abs_return": 0.189311,
+      "excess_return": 0.17983,
+      "max_drawdown": -0.078822
+    },
+    {
+      "ts_code": "300408.SZ",
+      "name": "三环集团",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 85.7,
+      "exit_price": 96.54,
+      "abs_return": 0.126488,
+      "excess_return": 0.117007,
+      "max_drawdown": -0.055023
+    },
+    {
+      "ts_code": "300308.SZ",
+      "name": "中际旭创",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 857.5,
+      "exit_price": 1030.0,
+      "abs_return": 0.201166,
+      "excess_return": 0.191686,
+      "max_drawdown": -0.044527
+    }
+  ],
+  "candidates": 10,
+  "strategy": "momentum_value_hybrid"
+}

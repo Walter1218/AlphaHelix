@@ -1,0 +1,127 @@
+{
+  "date": "20260529",
+  "exit_date": "20260612",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": -0.023466,
+  "portfolio_return": -0.023217,
+  "excess_return": 0.00025,
+  "direction_accuracy": 0.3,
+  "top3_hit_rate": 0.6667,
+  "portfolio_max_drawdown": -0.08409,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "601138.SH",
+      "name": "工业富联",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 73.4,
+      "exit_price": 70.13,
+      "abs_return": -0.04455,
+      "excess_return": -0.021084,
+      "max_drawdown": -0.142258
+    },
+    {
+      "ts_code": "603993.SH",
+      "name": "洛阳钼业",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 18.51,
+      "exit_price": 19.11,
+      "abs_return": 0.032415,
+      "excess_return": 0.055881,
+      "max_drawdown": -0.155857
+    },
+    {
+      "ts_code": "688525.SH",
+      "name": "佰维存储",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 327.37,
+      "exit_price": 327.9,
+      "abs_return": 0.001619,
+      "excess_return": 0.025085,
+      "max_drawdown": -0.154727
+    },
+    {
+      "ts_code": "301308.SZ",
+      "name": "江波龙",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 551.29,
+      "exit_price": 514.89,
+      "abs_return": -0.066027,
+      "excess_return": -0.042561,
+      "max_drawdown": -0.146742
+    },
+    {
+      "ts_code": "600183.SH",
+      "name": "生益科技",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 140.62,
+      "exit_price": 151.28,
+      "abs_return": 0.075807,
+      "excess_return": 0.099274,
+      "max_drawdown": -0.068769
+    },
+    {
+      "ts_code": "600176.SH",
+      "name": "中国巨石",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 42.1,
+      "exit_price": 41.61,
+      "abs_return": -0.011639,
+      "excess_return": 0.011827,
+      "max_drawdown": -0.155344
+    },
+    {
+      "ts_code": "002463.SZ",
+      "name": "沪电股份",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 132.04,
+      "exit_price": 125.2,
+      "abs_return": -0.051802,
+      "excess_return": -0.028336,
+      "max_drawdown": -0.112623
+    },
+    {
+      "ts_code": "601600.SH",
+      "name": "中国铝业",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 11.42,
+      "exit_price": 10.8,
+      "abs_return": -0.054291,
+      "excess_return": -0.030824,
+      "max_drawdown": -0.165695
+    },
+    {
+      "ts_code": "300750.SZ",
+      "name": "宁德时代",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 424.0,
+      "exit_price": 394.85,
+      "abs_return": -0.06875,
+      "excess_return": -0.045284,
+      "max_drawdown": -0.119132
+    },
+    {
+      "ts_code": "600887.SH",
+      "name": "伊利股份",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 26.92,
+      "exit_price": 25.71,
+      "abs_return": -0.044948,
+      "excess_return": -0.021482,
+      "max_drawdown": -0.06963
+    }
+  ],
+  "candidates": 10,
+  "strategy": "quality_growth"
+}

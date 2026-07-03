@@ -1,0 +1,129 @@
+{
+  "date": "20250228",
+  "exit_date": "20250314",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.02995,
+  "portfolio_return": 0.042468,
+  "excess_return": 0.012518,
+  "direction_accuracy": 0.8,
+  "top3_hit_rate": 0.3333,
+  "portfolio_max_drawdown": -0.021246,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "002594.SZ",
+      "name": "比亚迪",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 361.82,
+      "exit_price": 375.94,
+      "abs_return": 0.039025,
+      "excess_return": 0.009075,
+      "max_drawdown": -0.046929
+    },
+    {
+      "ts_code": "688041.SH",
+      "name": "海光信息",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 160.0,
+      "exit_price": 156.88,
+      "abs_return": -0.0195,
+      "excess_return": -0.04945,
+      "max_drawdown": -0.056687
+    },
+    {
+      "ts_code": "688506.SH",
+      "name": "百利天恒",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 233.0,
+      "exit_price": 212.02,
+      "abs_return": -0.090043,
+      "excess_return": -0.119993,
+      "max_drawdown": -0.101674
+    },
+    {
+      "ts_code": "600809.SH",
+      "name": "山西汾酒",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 203.68,
+      "exit_price": 222.85,
+      "abs_return": 0.094118,
+      "excess_return": 0.064168,
+      "max_drawdown": -0.038246
+    },
+    {
+      "ts_code": "000425.SZ",
+      "name": "徐工机械",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 8.81,
+      "exit_price": 9.24,
+      "abs_return": 0.048808,
+      "excess_return": 0.018858,
+      "max_drawdown": -0.035639
+    },
+    {
+      "ts_code": "000338.SZ",
+      "name": "潍柴动力",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 15.69,
+      "exit_price": 16.01,
+      "abs_return": 0.020395,
+      "excess_return": -0.009555,
+      "max_drawdown": -0.039783
+    },
+    {
+      "ts_code": "300124.SZ",
+      "name": "汇川技术",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 72.15,
+      "exit_price": 73.72,
+      "abs_return": 0.02176,
+      "excess_return": -0.00819,
+      "max_drawdown": -0.072389
+    },
+    {
+      "ts_code": "600031.SH",
+      "name": "三一重工",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 18.2,
+      "exit_price": 20.49,
+      "abs_return": 0.125824,
+      "excess_return": 0.095874,
+      "max_drawdown": -0.024343
+    },
+    {
+      "ts_code": "601166.SH",
+      "name": "兴业银行",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 20.75,
+      "exit_price": 21.76,
+      "abs_return": 0.048675,
+      "excess_return": 0.018724,
+      "max_drawdown": -0.016854
+    },
+    {
+      "ts_code": "000568.SZ",
+      "name": "泸州老窖",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 126.46,
+      "exit_price": 143.61,
+      "abs_return": 0.135616,
+      "excess_return": 0.105666,
+      "max_drawdown": -0.023565
+    }
+  ],
+  "candidates": 10,
+  "strategy": "momentum_value_hybrid",
+  "regime": "range",
+  "regime_reason": "ma20_slope=0.82%, ret_20d=1.5%, vol=14.1%"
+}

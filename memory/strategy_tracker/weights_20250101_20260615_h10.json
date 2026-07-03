@@ -1,0 +1,19 @@
+{
+  "start": "20250101",
+  "end": "20260615",
+  "horizon": 10,
+  "strategy_weights": {
+    "scores": {
+      "momentum_value_hybrid": 0.044512,
+      "regime": 0.070576,
+      "quality_growth": -0.012232,
+      "contrarian": 0.004705
+    },
+    "weights": {
+      "momentum_value_hybrid": 0.2543,
+      "regime": 0.261,
+      "quality_growth": 0.2403,
+      "contrarian": 0.2444
+    }
+  }
+}

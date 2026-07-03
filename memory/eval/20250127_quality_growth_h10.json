@@ -1,0 +1,127 @@
+{
+  "date": "20250127",
+  "exit_date": "20250218",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.025072,
+  "portfolio_return": -0.002687,
+  "excess_return": -0.027759,
+  "direction_accuracy": 0.5,
+  "top3_hit_rate": 0.6667,
+  "portfolio_max_drawdown": -0.011504,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "601919.SH",
+      "name": "中远海控",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 14.27,
+      "exit_price": 14.63,
+      "abs_return": 0.025228,
+      "excess_return": 0.000156,
+      "max_drawdown": -0.015753
+    },
+    {
+      "ts_code": "603993.SH",
+      "name": "洛阳钼业",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 7.24,
+      "exit_price": 6.94,
+      "abs_return": -0.041436,
+      "excess_return": -0.066509,
+      "max_drawdown": -0.073431
+    },
+    {
+      "ts_code": "601899.SH",
+      "name": "紫金矿业",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 16.24,
+      "exit_price": 16.41,
+      "abs_return": 0.010468,
+      "excess_return": -0.014604,
+      "max_drawdown": -0.050347
+    },
+    {
+      "ts_code": "601318.SH",
+      "name": "中国平安",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 50.85,
+      "exit_price": 51.31,
+      "abs_return": 0.009046,
+      "excess_return": -0.016026,
+      "max_drawdown": -0.022222
+    },
+    {
+      "ts_code": "601601.SH",
+      "name": "中国太保",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 32.35,
+      "exit_price": 32.7,
+      "abs_return": 0.010819,
+      "excess_return": -0.014253,
+      "max_drawdown": -0.027512
+    },
+    {
+      "ts_code": "601319.SH",
+      "name": "中国人保",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 7.16,
+      "exit_price": 6.95,
+      "abs_return": -0.02933,
+      "excess_return": -0.054402,
+      "max_drawdown": -0.034916
+    },
+    {
+      "ts_code": "601689.SH",
+      "name": "拓普集团",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 65.67,
+      "exit_price": 69.19,
+      "abs_return": 0.053601,
+      "excess_return": 0.028529,
+      "max_drawdown": -0.080423
+    },
+    {
+      "ts_code": "000333.SZ",
+      "name": "美的集团",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 73.88,
+      "exit_price": 71.9,
+      "abs_return": -0.0268,
+      "excess_return": -0.051872,
+      "max_drawdown": -0.0268
+    },
+    {
+      "ts_code": "600900.SH",
+      "name": "长江电力",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 28.9,
+      "exit_price": 28.36,
+      "abs_return": -0.018685,
+      "excess_return": -0.043757,
+      "max_drawdown": -0.034602
+    },
+    {
+      "ts_code": "601838.SH",
+      "name": "成都银行",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 17.19,
+      "exit_price": 16.85,
+      "abs_return": -0.019779,
+      "excess_return": -0.044851,
+      "max_drawdown": -0.042467
+    }
+  ],
+  "candidates": 10,
+  "strategy": "quality_growth"
+}

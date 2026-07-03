@@ -1,0 +1,126 @@
+{
+  "date": "20250127",
+  "exit_date": "20250218",
+  "horizon": 10,
+  "benchmark": "000300.SH",
+  "benchmark_return": 0.025072,
+  "portfolio_return": 0.018663,
+  "excess_return": -0.006409,
+  "direction_accuracy": 0.6,
+  "top3_hit_rate": 1.0,
+  "portfolio_max_drawdown": -0.015025,
+  "confidence_correlation": 0.0,
+  "details": [
+    {
+      "ts_code": "601166.SH",
+      "name": "兴业银行",
+      "rank": 1,
+      "confidence": "medium",
+      "entry_price": 20.31,
+      "exit_price": 21.05,
+      "abs_return": 0.036435,
+      "excess_return": 0.011363,
+      "max_drawdown": -0.009924
+    },
+    {
+      "ts_code": "002050.SZ",
+      "name": "三花智控",
+      "rank": 2,
+      "confidence": "medium",
+      "entry_price": 30.57,
+      "exit_price": 32.67,
+      "abs_return": 0.068695,
+      "excess_return": 0.043623,
+      "max_drawdown": -0.094847
+    },
+    {
+      "ts_code": "601689.SH",
+      "name": "拓普集团",
+      "rank": 3,
+      "confidence": "medium",
+      "entry_price": 65.67,
+      "exit_price": 69.19,
+      "abs_return": 0.053601,
+      "excess_return": 0.028529,
+      "max_drawdown": -0.080423
+    },
+    {
+      "ts_code": "600183.SH",
+      "name": "生益科技",
+      "rank": 4,
+      "confidence": "medium",
+      "entry_price": 29.82,
+      "exit_price": 33.71,
+      "abs_return": 0.130449,
+      "excess_return": 0.105377,
+      "max_drawdown": -0.099933
+    },
+    {
+      "ts_code": "300442.SZ",
+      "name": "润泽科技",
+      "rank": 5,
+      "confidence": "medium",
+      "entry_price": 59.62,
+      "exit_price": 55.34,
+      "abs_return": -0.071788,
+      "excess_return": -0.09686,
+      "max_drawdown": -0.10857
+    },
+    {
+      "ts_code": "300433.SZ",
+      "name": "蓝思科技",
+      "rank": 6,
+      "confidence": "medium",
+      "entry_price": 26.01,
+      "exit_price": 27.65,
+      "abs_return": 0.063053,
+      "excess_return": 0.03798,
+      "max_drawdown": -0.051458
+    },
+    {
+      "ts_code": "600919.SH",
+      "name": "江苏银行",
+      "rank": 7,
+      "confidence": "medium",
+      "entry_price": 9.93,
+      "exit_price": 9.48,
+      "abs_return": -0.045317,
+      "excess_return": -0.070389,
+      "max_drawdown": -0.057402
+    },
+    {
+      "ts_code": "002142.SZ",
+      "name": "宁波银行",
+      "rank": 8,
+      "confidence": "medium",
+      "entry_price": 26.38,
+      "exit_price": 25.22,
+      "abs_return": -0.043973,
+      "excess_return": -0.069045,
+      "max_drawdown": -0.051933
+    },
+    {
+      "ts_code": "601229.SH",
+      "name": "上海银行",
+      "rank": 9,
+      "confidence": "medium",
+      "entry_price": 9.3,
+      "exit_price": 9.33,
+      "abs_return": 0.003226,
+      "excess_return": -0.021846,
+      "max_drawdown": -0.021505
+    },
+    {
+      "ts_code": "601818.SH",
+      "name": "光大银行",
+      "rank": 10,
+      "confidence": "medium",
+      "entry_price": 3.87,
+      "exit_price": 3.84,
+      "abs_return": -0.007752,
+      "excess_return": -0.032824,
+      "max_drawdown": -0.031008
+    }
+  ],
+  "candidates": 10
+}

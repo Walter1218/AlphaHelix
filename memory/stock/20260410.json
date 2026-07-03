@@ -1,0 +1,101 @@
+{
+  "date": "20260410",
+  "data_as_of": "20260410",
+  "market_summary": "Historical backtest snapshot for 2026-04-10.",
+  "picks": [
+    {
+      "ts_code": "300308.SZ",
+      "name": "中际旭创",
+      "score": 0.7126,
+      "rank": 1,
+      "rationale": "通信设备, score 0.7126",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "300502.SZ",
+      "name": "新易盛",
+      "score": 0.6995,
+      "rank": 2,
+      "rationale": "通信设备, score 0.6995",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "002475.SZ",
+      "name": "立讯精密",
+      "score": 0.6875,
+      "rank": 3,
+      "rationale": "元器件, score 0.6875",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "603259.SH",
+      "name": "药明康德",
+      "score": 0.6874,
+      "rank": 4,
+      "rationale": "化学制药, score 0.6874",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "688336.SH",
+      "name": "三生国健",
+      "score": 0.6617,
+      "rank": 5,
+      "rationale": "生物制药, score 0.6617",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "688525.SH",
+      "name": "佰维存储",
+      "score": 0.6606,
+      "rank": 6,
+      "rationale": "半导体, score 0.6606",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "001309.SZ",
+      "name": "德明利",
+      "score": 0.654,
+      "rank": 7,
+      "rationale": "半导体, score 0.6540",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "600176.SH",
+      "name": "中国巨石",
+      "score": 0.6482,
+      "rank": 8,
+      "rationale": "玻璃, score 0.6482",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "603296.SH",
+      "name": "华勤技术",
+      "score": 0.6474,
+      "rank": 9,
+      "rationale": "元器件, score 0.6474",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    },
+    {
+      "ts_code": "000338.SZ",
+      "name": "潍柴动力",
+      "score": 0.6378,
+      "rank": 10,
+      "rationale": "汽车配件, score 0.6378",
+      "confidence": "medium",
+      "stop_loss": 0.0
+    }
+  ],
+  "risk_notes": [
+    "Backtest only.",
+    "AlphaHelix stands behind the rigor of its research methodology and data quality, but does not guarantee future returns due to market uncertainty."
+  ]
+}
