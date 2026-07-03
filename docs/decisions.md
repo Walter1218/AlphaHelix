@@ -540,6 +540,32 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 
 ---
 
+## ADR-032：Trace 覆盖与持久化现状
+
+**日期**：2026-07-03
+**问题**：AlphaHelix 当前是否有全局 Trace 覆盖与持久化？
+**现状**：
+- **没有**。代码层面未实现任何 trace 采集、聚合或持久化机制。
+- `docs/agents.md` 与 `docs/research.md` 中提到的 Trace 是指 HelixAgent 内部能力（`packages/opencode/src/trace/trace.ts`），但 AlphaHelix 并未调用或导出相关数据。
+- 当前可审计的仅有：
+  - `memory/log/daily-screen-*.log`：HelixAgent 子进程 stdout/stderr，非结构化。
+  - `memory/stock/YYYYMMDD.json`：最终选股结果与因子值，缺少中间推理链。
+  - `memory/eval/YYYYMMDD_*.json`：评估结果，不含决策过程。
+
+**影响**：
+- 无法做 DPO（Direct Preference Optimization）训练，因为缺少 chosen/rejected traces。
+- 无法回放某次选股的完整决策链（LLM 想了什么、调用了哪些工具、为什么调整权重）。
+- 无法系统性分析高/低命中率案例的差异。
+
+**下一步选项**：
+1. **利用 HelixAgent 原生 Trace**：研究其 trace 输出格式，在 `daily-screen.ts` 中捕获并保存到 `memory/trace/`。
+2. **自研 AlphaHelix Trace**：在 `screen.py`、`evaluate.py`、`feedback_harness.py` 等关键节点写入结构化 trace（JSONL），记录输入、输出、权重、中间结果。
+3. **轻量 prompt + 结果日志**：在 agent prompt 中要求 LLM 输出思考过程，并保存到 `memory/stock/YYYYMMDD.md` 的 `reasoning` 字段。
+
+**建议**：先选方案 2，因为不依赖 HelixAgent 内部实现，可控性最强；未来若 HelixAgent 开放 trace API，再迁移或补充方案 1。
+
+---
+
 ## 待决策事项
 
 - [ ] 是否接入实盘交易（当前明确否）

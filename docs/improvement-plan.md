@@ -658,6 +658,19 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 
 针对 `quality_growth` 在回测中持续偏弱的问题，通过网格搜索调整其 pass1/pass2 权重与过滤阈值，或将其触发条件限制在财报密集披露期。
 
+### 10.10 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
+
+**现状**：当前没有全局 Trace 覆盖与持久化；只有最终选股结果、评估结果和运行日志。
+
+**目标**：
+1. 在关键节点（`screen.py` 选股、`evaluate.py` 评估、`feedback_harness.py` 更新权重、agent 决策）写入结构化 trace。
+2. Trace 格式采用 JSONL，包含：timestamp、step、inputs、outputs、metadata（权重、策略、regime）。
+3. 定期（每月）根据命中率把 trace 标记为 chosen/rejected，导出 DPO 数据集。
+
+**输出**：
+- `memory/trace/YYYYMMDD.jsonl`：单次选股全流程 trace。
+- `memory/dpo/chosen.jsonl` / `rejected.jsonl`：用于未来微调模型。
+
 ---
 
 ## 11. 预期目标

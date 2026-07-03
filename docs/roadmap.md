@@ -157,6 +157,7 @@ python scripts/feedback_harness.py \
 引入更多数据源和模型能力，进一步提升 alpha。
 
 ### 任务
+- [ ] 建立 AlphaHelix Trace 持久化（`memory/trace/` JSONL）
 - [ ] 定期导出 DPO 数据集（chosen/rejected traces）
 - [ ] 引入更多数据源：新闻 sentiment、机构持仓、北向资金、融资融券、龙虎榜
 - [ ] 尝试不同模型（kimi/gpt/claude）的选股效果对比
@@ -316,4 +317,5 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 并行推进** 的阶段：
 - [ ] 分析师一致预期数据接入
 - [ ] 多模型选股效果对比（kimi/gpt/claude）
 - [ ] 机器学习因子组合模型（样本外验证后再合并）
+- [ ] 建立 AlphaHelix Trace 持久化（`memory/trace/` JSONL）
 - [ ] 定期导出 DPO 数据集（chosen/rejected traces）
