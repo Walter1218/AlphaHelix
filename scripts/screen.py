@@ -561,8 +561,8 @@ def screen(date: str, strategy: str, top_n: int = 50) -> list:
     df_pass1 = pass1_screen(df_universe, date, config["pass1"])
     df_pass2 = pass2_enrich(df_pass1, date, config["pass2"])
 
-    # 当前 industry 仅用于报告展示，不做量化截断
-    df_result = df_pass2.head(top_n)
+    # 行业数量集中度截断（基于当前行业分类，仅作辅助参考）
+    df_result = cap_sector_weight(df_pass2, top_n, max_pct=MAX_SECTOR_PCT)
 
     if df_result.empty:
         return []
