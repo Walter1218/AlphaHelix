@@ -208,28 +208,34 @@ Week 18+:   Phase 7  高级数据与模型实验（未来）
 - [x] 调研报告落盘
 - [x] 架构设计文档完成
 - [x] Phase 1 完成：2026-07-03 首次端到端跑通
-- [x] Phase 2 完成：因子扩展、多策略、`regime` 切换
+- [x] Phase 2 完成：因子扩展、多策略（4 个）、`regime` 切换
 - [x] Phase 4 完成：walk-forward 回测 8 个月
 - [x] Phase 6 v1 完成：Feedback Harness 落地，可生成动态权重与 prompt 自适应提示
+- [x] Trace 覆盖完成：脚本层 + agent reasoning 均写入 `memory/trace/`
+- [ ] DPO 数据集导出未实现
+- [ ] Phase 5 自动化调度未实现
 
 ### 阶段评估（2026-07-03）
 
-AlphaHelix 处于 **Phase 4 完成、Phase 5/6 并行推进** 的阶段：
+AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 
 - 已验证：
   - HelixAgent 能加载 `.opencode/agent/alpha-analyst.md`，LLM 能调用 Tushare 工具与 `screen.py`，最终写入 `memory/stock/`。
   - `daily-screen.ts` 可无人值守执行，stdout 重定向到 `memory/log/`。
   - `scripts/evaluate.py` 可计算历史持有期收益。
-  - `screen.py` 支持 `momentum_value_hybrid`、`quality_growth`、`contrarian` 三策略与 `regime` 自动切换。
+  - `screen.py` 支持 `momentum_value_hybrid`、`quality_growth`、`contrarian`、`event_driven` 四策略与 `regime` 自动切换。
   - `market_regime.py` 可基于沪深300 判断市场状态。
   - `walkforward.py` 已完成 8 个月回测，`regime` 策略在 2025 年累计超额 +8.86%，优于单一 momentum 的 +4.92%。
+  - `event_driven` 在两个区间均跑赢其他单一策略（2025 累计超额 +11.60%，2026 Q2 +8.99%）。
   - Feedback Harness 已产出动态权重与 prompt 自适应提示。
+  - Trace 基础设施已落地：`scripts/_trace.py` + `.opencode/tool/append_trace.ts`，脚本层与 agent reasoning 均写入 `memory/trace/YYYYMMDD.jsonl`。
 
 - 已知问题：
   - `memory_search` 工具在当前 HelixAgent 环境下会触发 `Unexpected server error`，已暂时从选股流程中移除。
-  - 行业集中度控制目前为数量控制，市值权重控制尚未完全实现。
+  - 行业集中度控制目前为数量控制，市值权重控制尚未实现。
   - Feedback Harness 仍为手动运行，需接入 cron 实现在线学习。
   - `quality_growth` 策略在回测中表现偏弱，需继续调优。
+  - 多目标离线权重优化已实现工具，但 **70% 方向准确率阈值不可行**：pass2 权重随机搜索 10,000 组后，event_driven / contrarian 均无法达到 55% 方向准确率；需升级 pass1 优化、regime 条件优化或引入新因子。
   - 当前因子体系对**预期/主题驱动型行情**覆盖不足，2026-01-30 的东山精密案例即因静态财务/动量因子滞后而错失后续 40%+ 涨幅。
 
 ### 东山精密案例启示（2026-07-03）
@@ -242,16 +248,16 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 并行推进** 的阶段：
 
 **结论**：当前因子体系擅长基于已披露基本面和动量选股，但对**预期驱动、主题驱动、事件驱动**的机会存在结构性盲区。已据此新增 `forecast`/`express` 事件因子、短期反转因子和行业相对强度因子；下一步应继续完善事件前置布局、在线学习与自动化调度。
 
-### 下一步优先级（已按案例启示重排）
+### 下一步优先级（结合代码实现状态重排）
 
-1. **range 市场下提升 contrarian 权重**：通过 `strategy_tracker` 动态调整，让 range 市场不只依赖 `momentum_value_hybrid`。
-2. **资金流动量因子优化**：用 `net_mf_ratio` 替代绝对金额，并区分 5日/20日背离信号。
-3. **接入披露日期预告**：基于 `disclosure_date` 做事件驱动布局。
-4. **在线学习**：让 `feedback_harness.py` 自动发现新增回测结果并增量更新权重。
-5. **自动化调度**：把 `daily-screen.ts` 与 `feedback_harness.py` 接入 cron，实现无人值守。
+1. **将 event_driven 接入 regime 映射**：当前 regime 在 2026 Q2 实际等同于 momentum，错失 event_driven 超额收益；需改 `market_regime.py` 映射逻辑并重新跑 `regime` walk-forward。
+2. **扩大回测样本到 12+ 个月**：当前仅 8 个月，且 70% 方向准确率阈值因样本不足不可行；需要更多数据验证稳定性。
+3. **在线学习 `--auto`**：让 `feedback_harness.py` 自动发现新增回测结果并增量更新权重。
+4. **自动化调度**：把 `daily-screen.ts` 与 `feedback_harness.py` 接入 cron，实现无人值守。
+5. **pass1 权重 / regime 条件优化**：pass2 权重已接近最优，下一步优化候选池（pass1）或分 regime 优化。
 6. **分行业命中率反馈**：计算每个行业在最近 N 期的命中率，指导 agent 在行业配置上倾斜/回避。
-7. **置信度校准**：统计 `high/medium/low` 置信度对应的实际收益。
-8. **参数网格搜索**：对 `learning_rate`、`temperature`、`lookback` 等 harness 参数做回测内搜索。
+7. **交易成本与评估层增强**：`evaluate.py` 加入印花税、佣金、滑点。
+8. **数据层补齐**：融资融券、北向资金、龙虎榜、新闻 sentiment。
 
 ---
 

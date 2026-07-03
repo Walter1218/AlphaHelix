@@ -564,6 +564,7 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
   - Python 脚本层：`scripts/_trace.py` 写入结构化 JSONL trace。
   - Agent 层：新增 `.opencode/tool/append_trace.ts`，`alpha-analyst` 在每个关键步骤调用该工具记录 reasoning。
 - `memory/trace/YYYYMMDD.jsonl` 现在同时包含脚本执行事件和 agent reasoning 事件，便于端到端 case 分析。
+- **尚未完成**：按命中率自动标记 chosen/rejected 并导出 DPO 数据集。
 
 ---
 
