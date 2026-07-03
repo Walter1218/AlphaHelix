@@ -660,16 +660,15 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 
 ### 10.10 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
 
-**现状**：当前没有全局 Trace 覆盖与持久化；只有最终选股结果、评估结果和运行日志。
+**现状**：基础 Trace 已落地。`scripts/_trace.py` 提供 `trace_event()` 与 `new_run()`；`screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 均已接入，写入 `memory/trace/YYYYMMDD.jsonl`。
 
-**目标**：
-1. 在关键节点（`screen.py` 选股、`evaluate.py` 评估、`feedback_harness.py` 更新权重、agent 决策）写入结构化 trace。
-2. Trace 格式采用 JSONL，包含：timestamp、step、inputs、outputs、metadata（权重、策略、regime）。
-3. 定期（每月）根据命中率把 trace 标记为 chosen/rejected，导出 DPO 数据集。
+**待完成**：
+1. 把 agent 侧 LLM 思考过程也写入 trace（当前仅在工具/脚本层）。
+2. 定期（每月）根据命中率把 trace 标记为 chosen/rejected，导出 DPO 数据集。
 
 **输出**：
-- `memory/trace/YYYYMMDD.jsonl`：单次选股全流程 trace。
-- `memory/dpo/chosen.jsonl` / `rejected.jsonl`：用于未来微调模型。
+- `memory/trace/YYYYMMDD.jsonl`：单次选股全流程 trace（已可用）。
+- `memory/dpo/chosen.jsonl` / `rejected.jsonl`：待实现。
 
 ---
 

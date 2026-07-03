@@ -545,7 +545,9 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 **日期**：2026-07-03
 **问题**：AlphaHelix 当前是否有全局 Trace 覆盖与持久化？
 **现状**：
-- **没有**。代码层面未实现任何 trace 采集、聚合或持久化机制。
+- **已实现基础版**。新增 `scripts/_trace.py`，在 `screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 关键节点写入 `memory/trace/YYYYMMDD.jsonl`。
+- 每条 trace 包含 `timestamp`、`run_id`、`step`、`date`、`strategy` 和 `payload`（inputs/outputs/metadata）。
+- 尚未与 HelixAgent 内部 trace 打通；也尚未按命中率自动标记 chosen/rejected。
 - `docs/agents.md` 与 `docs/research.md` 中提到的 Trace 是指 HelixAgent 内部能力（`packages/opencode/src/trace/trace.ts`），但 AlphaHelix 并未调用或导出相关数据。
 - 当前可审计的仅有：
   - `memory/log/daily-screen-*.log`：HelixAgent 子进程 stdout/stderr，非结构化。
