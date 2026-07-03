@@ -82,8 +82,8 @@ description: A-share quantitative stock selection using Tushare data and HelixAg
 
 使用 `write` 工具同时写入两个文件（`memory` 工具目前只支持检索）：
 
-- `memory/stock/YYYY-MM-DD.md`：人类可读的选股报告
-- `memory/stock/YYYY-MM-DD.json`：机器可读的选股快照，供后续回测
+- `memory/stock/YYYYMMDD.md`：人类可读的选股报告
+- `memory/stock/YYYYMMDD.json`：机器可读的选股快照，供后续回测
 
 ## 未来函数禁忌
 

@@ -7,9 +7,9 @@
 ### 1. 快照日期格式不一致
 
 - **位置**：`.opencode/agent/alpha-analyst.md`、`scripts/evaluate.py`、`scripts/walkforward.py`、`scripts/screen.py`
-- **问题**：agent prompt 要求写入 `memory/stock/YYYY-MM-DD.json`，但其他脚本使用 `YYYYMMDD.json`。
+- **问题**：agent prompt 和部分文档使用 `memory/stock/YYYY-MM-DD.json` 示例，但脚本实际使用 `YYYYMMDD.json`；仓库中还存在 `memory/stock/2026-07-03.json` 与 `20260703.json` 并存。
 - **后果**：HelixAgent 生成的快照 `evaluate.py` 可能找不到；walk-forward 可能重复生成快照。
-- **修复**：统一使用 `YYYYMMDD` 格式，并更新 agent prompt。
+- **修复**：统一使用 `YYYYMMDD` 格式，更新 agent prompt 和相关文档，删除不一致的 `2026-07-03.json`。
 
 ### 2. `cap_sector_weight` 是死代码
 

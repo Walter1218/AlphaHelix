@@ -242,7 +242,7 @@ alpha-analyst 接收用户指令
     ↓
 LLM 综合打分并生成 Top-K 组合
     ↓
-write 工具写入 memory/stock/YYYY-MM-DD.md + .json
+write 工具写入 memory/stock/YYYYMMDD.md + .json
 
 > 注：当前 MVP 流程跳过 `memory_search`，待 HelixAgent 修复后再加入历史经验复用步骤。
     ↓

@@ -220,7 +220,7 @@ crontab -e
 - **问题 5**：`screen_candidates` 工具传 flag 给 `screen.py`，导致解析失败。
   - **解决**：改为位置参数调用，并记录到 ADR-014。
 
-首次成功输出 6 只组合，报告见 `memory/stock/2026-07-03.md`。
+首次成功输出 6 只组合，报告见 `memory/stock/20260703.md`。
 
 ### 2026-07-03 修复 `daily-screen.ts` 与首次回测
 

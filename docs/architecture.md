@@ -16,7 +16,7 @@ AlphaHelix 是构建在 HelixAgent 之上的 A 股智能选股智能体。它由
 
 ### 2.2 记忆即经验
 
-每次选股结果写入 `memory/stock/YYYY-MM-DD.md`。后续选股时通过 HelixAgent 的 `memory_search` 检索相似市场环境下的历史记录，形成可积累的投资经验。
+每次选股结果写入 `memory/stock/YYYYMMDD.md`。后续选股时通过 HelixAgent 的 `memory_search` 检索相似市场环境下的历史记录，形成可积累的投资经验。
 
 > 当前 `memory_search` 因 HelixAgent 环境问题暂时禁用，待修复后重新接入。
 
@@ -100,7 +100,7 @@ AlphaHelix 是构建在 HelixAgent 之上的 A 股智能选股智能体。它由
          ↓
 ┌──────────────────────────┐
 │ memory/stock/            │
-│ YYYY-MM-DD.md + .json    │
+│ YYYYMMDD.md + .json      │
 └──────────────────────────┘
          ↓
    10/20 trading days later

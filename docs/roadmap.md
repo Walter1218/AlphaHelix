@@ -13,7 +13,7 @@
 - [x] 验证 `.opencode/tool/tushare_*.ts` 能被 HelixAgent 加载
 - [x] 验证 `tushare_stock_basic`、`tushare_daily` 可正常返回数据
 - [x] 验证 `alpha-analyst` agent 能执行选股指令
-- [x] 验证选股结果能写入 `memory/stock/YYYY-MM-DD.md`
+- [x] 验证选股结果能写入 `memory/stock/YYYYMMDD.md`
 - [x] 修复 `daily-screen.ts`：切换到 CLI headless 模式并稳定运行
 
 ### 验收标准

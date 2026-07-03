@@ -34,8 +34,8 @@ bun run scripts/daily-screen.ts
 ```
 
 成功标志：
-- `memory/stock/YYYY-MM-DD.md` 已生成
-- `memory/stock/YYYY-MM-DD.json` 已生成
+  - `memory/stock/YYYYMMDD.md` 已生成
+  - `memory/stock/YYYYMMDD.json` 已生成
 - `memory/log/daily-screen-*.log` 无 `Unexpected server error` 或 Python 异常
 
 ### 3.2 历史评估
@@ -122,7 +122,7 @@ python scripts/feedback_harness.py \
 
 | 日志 | 路径 | 说明 |
 |---|---|---|
-| 每日选股日志 | `memory/log/daily-screen-YYYY-MM-DD-HH-MM-SS.log` | HelixAgent 子进程 stdout/stderr |
+| 每日选股日志 | `memory/log/daily-screen-YYYYMMDD-<timestamp>.log` | HelixAgent 子进程 stdout/stderr |
 | Cron 汇总日志 | `memory/log/cron-*.log` | cron 任务输出 |
 | Feedback Harness | `memory/log/feedback_harness-*.log` | 权重更新与 prompt 生成日志 |
 | Walk-forward | `memory/log/walkforward-*.log` | 多期回测日志 |

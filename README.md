@@ -27,7 +27,7 @@ HelixAgent (agent=alpha-analyst, mode=primary)
     ↓
 LLM 综合推理 → JSON 输出
     ↓
-write → memory/stock/YYYY-MM-DD.md + .json
+write → memory/stock/YYYYMMDD.md + .json
     ↓
 Feedback Harness（factor_ic / strategy_tracker / weight_optimizer）
     ↓
@@ -177,7 +177,7 @@ python scripts/feedback_harness.py \
 1. **因子计算本地化**：数值计算走 `scripts/screen.py` 和 `scripts/evaluate.py`，避免 LLM 数值幻觉
 2. **严格防时间穿越**：T 日选股只能用 T 日及之前已公开数据；财报校验 `ann_date`、ST 状态查历史名称、退市判断查当天交易记录
 3. **推理结构化**：LLM 输出必须包含 JSON：`ts_code`, `score`, `rank`, `rationale`, `confidence`, `stop_loss`
-4. **双文件持久化**：每次选股同时写入 `memory/stock/YYYY-MM-DD.md`（报告）和 `YYYY-MM-DD.json`（回测快照）
+4. **双文件持久化**：每次选股同时写入 `memory/stock/YYYYMMDD.md`（报告）和 `YYYYMMDD.json`（回测快照）
 5. **记忆可进化**：Feedback Harness 基于历史结果自动更新因子权重与 prompt 风格
 6. **风险可拦截**：Cardinal 规则拦截 ST、退市、低流动性、财报未公告等高风险标的
 
