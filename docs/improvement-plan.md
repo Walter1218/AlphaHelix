@@ -62,8 +62,9 @@ AlphaHelix 已从「能跑通单次选股」的 MVP，演进为具备多策略 r
 |---|---|---|---|
 | momentum_value_hybrid | +0.95% | 58.0% | +4.92% |
 | quality_growth | +0.10% | 58.0% | +0.17% |
-| contrarian | +1.17% | 80.0% | +6.35% |
-| regime（range→momentum, trend_down→contrarian） | **+1.67%** | **66.0%** | **+8.86%** |
+| contrarian（新公式） | +0.67% | 76.0% | +3.65% |
+| event_driven | **+2.14%** | 56.0% | **+11.60%** |
+| regime（range→momentum, trend_down→contrarian） | +1.67% | 66.0% | +8.86% |
 
 #### 1.2.3 多策略对比（2026-04 至 2026-06）
 
@@ -71,10 +72,14 @@ AlphaHelix 已从「能跑通单次选股」的 MVP，演进为具备多策略 r
 |---|---|---|---|
 | momentum_value_hybrid | +2.03% | 50.0% | +4.96% |
 | quality_growth | +0.09% | 36.7% | +0.27% |
-| contrarian | -3.33% | 26.7% | -9.97% |
+| contrarian（新公式） | -3.47% | 33.3% | -10.35% |
+| event_driven | **+3.38%** | 43.3% | **+8.99%** |
 | regime（实际全部使用 momentum） | +2.03% | 50.0% | +4.96% |
 
-**结论**：`regime` 切换在 2025 年显著跑赢单一 `momentum_value_hybrid`；2026 年 Q2 因市场状态被归为 trend_up/range，实际与 momentum 一致。整体 regime 策略累计超额优于 baseline。
+**结论**：
+- `event_driven` 在两个区间均显著跑赢其他单一策略，累计超额 2025 年 +11.60%、2026 Q2 +8.99%，成为当前最强 baseline。
+- `contrarian` 新公式在 2025 年表现弱于旧公式（+0.67% vs +1.17%），2026 Q2 仍显著亏损，说明纯反转因子在当前样本下适应性有限。
+- `regime` 切换 2026 Q2 因 classifier 将市场判为 trend_up/range，实际等同于 momentum，未享受到 event_driven 的收益。
 
 **2025-01 至 2025-05 汇总（5 期）**：
 - 平均组合收益：+2.14%

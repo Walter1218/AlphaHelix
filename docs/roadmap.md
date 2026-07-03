@@ -176,7 +176,7 @@ python scripts/feedback_harness.py \
 | 轨道 | 当前状态 | 下一步 | 负责人/模块 |
 |---|---|---|---|
 | **数据轨道** | 量价、估值、财务、资金、业绩预告/快报数据已接入 | 披露日期预告、融资融券、北向资金、龙虎榜 | `.opencode/tool/tushare_*.ts` |
-| **因子/策略轨道** | 18+ 因子、四策略 + regime 切换已落地 | range 市场提升 contrarian 权重；调优 quality_growth；行业轮动与宏观 regime 深度融合 | `scripts/screen.py`, `scripts/market_regime.py` |
+| **因子/策略轨道** | 18+ 因子、四策略 + regime 切换已落地；event_driven 回测验证为当前最强单一策略 | 将 event_driven 接入 regime 映射；range 市场提升 contrarian 权重；调优 quality_growth | `scripts/screen.py`, `scripts/market_regime.py` |
 | **风控轨道** | ST/退市、流动性、财报防穿越已落地 | 业绩预亏/暴雷拦截、行业市值权重控制、高波动叙事拦截 | `scripts/screen.py`, Cardinal |
 | **Agent/执行轨道** | alpha-analyst 可执行选股 | 置信度校准、memory_search 修复后接入、失败重试 | `.opencode/agent/alpha-analyst.md`, `daily-screen.ts` |
 | **评估轨道** | evaluate.py + walkforward.py 已落地 | 交易成本、更长样本、分行业命中率 | `scripts/evaluate.py`, `scripts/walkforward.py` |
@@ -269,11 +269,12 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 并行推进** 的阶段：
 
 > 基于东山精密案例，当前因子体系对预期/主题驱动行情覆盖不足，应优先补齐以下因子并通过 Harness 迭代权重。
 
-- [x] **接入业绩预告/快报因子**：基于 Tushare `forecast`/`express` 构建业绩超预期事件因子，新增 `event_driven` 策略
+- [x] **接入业绩预告/快报因子**：基于 Tushare `forecast`/`express` 构建业绩超预期事件因子，新增 `event_driven` 策略；walk-forward 验证为当前最强单一策略
 - [ ] **接入披露日期预告**：基于 `disclosure_date` 做事件驱动布局
-- [x] **加入短期反转/超跌因子**：已新增 `mom_5`、`amount_ratio_5d`、`reversal_score`，并强化 `contrarian` 策略
+- [x] **加入短期反转/超跌因子**：已新增 `mom_5`、`amount_ratio_5d`、`reversal_score`，并强化 `contrarian` 策略；新公式回测 2025 平均超额 +0.67%，2026 Q2 -3.47%
 - [ ] **资金流动量因子优化**：用 `net_mf_ratio` 替代绝对金额，捕捉 5日/20日背离
 - [x] **构建行业相对强度因子**：已新增 `sector_momentum`、`relative_to_sector`、`sector_mom5`、`sector_amount_ratio`，应用于 `contrarian` 与 `event_driven`
+- [ ] **将 event_driven 接入 regime 映射**：当前 regime 在 2026 Q2 实际等同于 momentum，错失 event_driven 超额收益
 - [ ] **range 市场下 contrarian 权重动态提升**：通过 `strategy_tracker` 根据滚动绩效调整策略配比
 - [ ] `quality_growth` 策略调优
 - [ ] 行业轮动与宏观 regime 深度融合
