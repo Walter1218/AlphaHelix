@@ -538,8 +538,12 @@ def load_dynamic_weights(strategy: str) -> dict:
         return None
 
 
-def screen(date: str, strategy: str, top_n: int = 50) -> list:
-    """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重。"""
+def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False):
+    """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重。
+
+    Args:
+        return_full: 为 True 时返回 (top_n_records, full_df_pass2)，供离线优化使用。
+    """
     actual_strategy = strategy
     regime_info = None
     if strategy == "regime":
@@ -565,7 +569,7 @@ def screen(date: str, strategy: str, top_n: int = 50) -> list:
     df_result = cap_sector_weight(df_pass2, top_n, max_pct=MAX_SECTOR_PCT)
 
     if df_result.empty:
-        return []
+        return ([], df_pass2) if return_full else []
 
     output_cols = [
         "ts_code", "name", "industry", "total_score",
@@ -578,7 +582,10 @@ def screen(date: str, strategy: str, top_n: int = 50) -> list:
         "express_diluted_roe", "express_diluted_eps",
     ]
     output_cols = [c for c in output_cols if c in df_result.columns]
-    return df_result[output_cols].to_dict(orient="records")
+    records = df_result[output_cols].to_dict(orient="records")
+    if return_full:
+        return records, df_pass2
+    return records
 
 
 def screen_momentum_value_hybrid(date: str, top_n: int = 50) -> list:

@@ -49,9 +49,28 @@ def get_monthly_trade_dates(start_date: str, end_date: str) -> list:
     return monthly
 
 
+def _pick_from_candidate(c: dict, rank: int, factor_fields: list) -> dict:
+    """将单个候选对象转换为 snapshot pick。"""
+    pick = {
+        "ts_code": c["ts_code"],
+        "name": c["name"],
+        "score": round(c["total_score"], 4),
+        "rank": rank,
+        "rationale": f"{c.get('industry', '')}, score {c['total_score']:.4f}",
+        "confidence": "medium",
+        "stop_loss": 0.0,
+    }
+    for f in factor_fields:
+        if f in c and c[f] is not None:
+            try:
+                pick[f] = round(float(c[f]), 6)
+            except (ValueError, TypeError):
+                pass
+    return pick
+
+
 def build_snapshot(trade_date: str, candidates: list, horizon: int) -> dict:
     """根据 screen.py 输出构建 evaluate.py 可读取的 snapshot。保留因子值供 IC 计算。"""
-    picks = []
     factor_fields = [
         "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
         "roe", "revenue_growth", "profit_growth", "ocf_growth",
@@ -60,27 +79,34 @@ def build_snapshot(trade_date: str, candidates: list, horizon: int) -> dict:
         "reversal_score", "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
         "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps",
     ]
-    for i, c in enumerate(candidates, 1):
-        pick = {
-            "ts_code": c["ts_code"],
-            "name": c["name"],
-            "score": round(c["total_score"], 4),
-            "rank": i,
-            "rationale": f"{c.get('industry', '')}, score {c['total_score']:.4f}",
-            "confidence": "medium",
-            "stop_loss": 0.0,
-        }
-        for f in factor_fields:
-            if f in c and c[f] is not None:
-                try:
-                    pick[f] = round(float(c[f]), 6)
-                except (ValueError, TypeError):
-                    pass
-        picks.append(pick)
+    picks = [_pick_from_candidate(c, i, factor_fields) for i, c in enumerate(candidates, 1)]
     return {
         "date": trade_date,
         "data_as_of": trade_date,
         "market_summary": f"Walk-forward snapshot for {trade_date}, horizon={horizon}.",
+        "picks": picks,
+        "risk_notes": ["Backtest only.", "AlphaHelix stands behind the rigor of its research methodology and data quality, but does not guarantee future returns due to market uncertainty."],
+    }
+
+
+def build_full_snapshot(trade_date: str, df_pass2: pd.DataFrame, horizon: int) -> dict:
+    """构建包含 pass2 全部候选（约 80 只）的完整 snapshot，供离线权重优化使用。"""
+    factor_fields = [
+        "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
+        "roe", "revenue_growth", "profit_growth", "ocf_growth",
+        "net_mf_5d", "net_mf_20d", "net_mf_ratio",
+        "avg_amount_20", "amount_ratio_5d", "volatility_20", "total_mv",
+        "reversal_score", "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+        "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps",
+    ]
+    picks = []
+    for i, (_, row) in enumerate(df_pass2.iterrows(), 1):
+        c = row.to_dict()
+        picks.append(_pick_from_candidate(c, i, factor_fields))
+    return {
+        "date": trade_date,
+        "data_as_of": trade_date,
+        "market_summary": f"Full pass2 snapshot for {trade_date}, horizon={horizon}.",
         "picks": picks,
         "risk_notes": ["Backtest only.", "AlphaHelix stands behind the rigor of its research methodology and data quality, but does not guarantee future returns due to market uncertainty."],
     }
@@ -125,20 +151,28 @@ def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int, 
         except Exception:
             pass
 
-    # 1. 选股
-    candidates = screen(trade_date, actual_strategy, top_n)
+    # 1. 选股（同时获取完整 pass2 池供离线优化）
+    screen_result = screen(trade_date, actual_strategy, top_n, return_full=True)
+    if isinstance(screen_result, tuple):
+        candidates, df_pass2 = screen_result
+    else:
+        candidates = screen_result
+        df_pass2 = pd.DataFrame()
 
     if not candidates:
         return {"date": trade_date, "error": "No candidates generated"}
 
-    # 2. 写入 snapshot（兼容原路径 + 策略专属路径）
+    # 2. 写入 snapshot（兼容原路径 + 策略专属路径 + 完整 pass2 路径）
     snapshot = build_snapshot(trade_date, candidates, horizon)
+    full_snapshot = build_full_snapshot(trade_date, df_pass2, horizon)
     snapshot_path = SNAPSHOT_DIR / f"{trade_date}.json"
     strategy_snapshot_path = SNAPSHOT_DIR / f"{trade_date}_{actual_strategy}.json"
+    full_snapshot_path = SNAPSHOT_DIR / f"{trade_date}_{actual_strategy}_full.json"
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     snapshot_json = json.dumps(snapshot, ensure_ascii=False, indent=2)
     snapshot_path.write_text(snapshot_json)
     strategy_snapshot_path.write_text(snapshot_json)
+    full_snapshot_path.write_text(json.dumps(full_snapshot, ensure_ascii=False, indent=2))
 
     # 3. 评估
     try:
