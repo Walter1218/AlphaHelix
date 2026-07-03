@@ -131,11 +131,14 @@ def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int, 
     if not candidates:
         return {"date": trade_date, "error": "No candidates generated"}
 
-    # 2. 写入 snapshot
+    # 2. 写入 snapshot（兼容原路径 + 策略专属路径）
     snapshot = build_snapshot(trade_date, candidates, horizon)
     snapshot_path = SNAPSHOT_DIR / f"{trade_date}.json"
+    strategy_snapshot_path = SNAPSHOT_DIR / f"{trade_date}_{actual_strategy}.json"
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
-    snapshot_path.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2))
+    snapshot_json = json.dumps(snapshot, ensure_ascii=False, indent=2)
+    snapshot_path.write_text(snapshot_json)
+    strategy_snapshot_path.write_text(snapshot_json)
 
     # 3. 评估
     try:
