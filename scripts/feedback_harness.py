@@ -144,19 +144,11 @@ def main():
         except Exception as e:
             print(f"  {d}: ERROR {e}")
 
-    # 2. 策略跟踪（支持跨多个区间合并）
+    # 2. 策略跟踪
     print("[harness] Tracking strategy performance ...")
     summaries = {}
     for s in ["momentum_value_hybrid", "quality_growth", "contrarian", "event_driven", "regime"]:
-        # 先尝试合并 2025 和 2026 两个已跑区间
-        merged = {"monthly": []}
-        for (s0, e0) in [("20250101", "20250531"), ("20260401", "20260615")]:
-            part = load_strategy_summary(s0, e0, s, args.horizon)
-            if "error" not in part:
-                merged["monthly"].extend(part.get("monthly", []))
-        if not merged["monthly"]:
-            merged = load_strategy_summary(args.start, args.end, s, args.horizon)
-        summaries[s] = merged
+        summaries[s] = load_strategy_summary(args.start, args.end, s, args.horizon)
     st_result = {
         "start": args.start,
         "end": args.end,
