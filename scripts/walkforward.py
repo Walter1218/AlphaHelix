@@ -53,10 +53,12 @@ def build_snapshot(trade_date: str, candidates: list, horizon: int) -> dict:
     """根据 screen.py 输出构建 evaluate.py 可读取的 snapshot。保留因子值供 IC 计算。"""
     picks = []
     factor_fields = [
-        "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
+        "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
         "roe", "revenue_growth", "profit_growth", "ocf_growth",
         "net_mf_5d", "net_mf_20d", "net_mf_ratio",
-        "avg_amount_20", "volatility_20", "total_mv",
+        "avg_amount_20", "amount_ratio_5d", "volatility_20", "total_mv",
+        "reversal_score", "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+        "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps",
     ]
     for i, c in enumerate(candidates, 1):
         pick = {
