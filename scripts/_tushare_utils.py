@@ -109,13 +109,6 @@ def is_st_historical(ts_code: str, trade_date: str) -> bool:
     return any("ST" in n or "退" in n for n in names)
 
 
-def is_delisted_historical(ts_code: str, trade_date: str) -> bool:
-    """判断 trade_date 当天股票是否已退市/停牌无交易。
-    简单规则：若当天有日线数据，则认为未退市且可交易。"""
-    df = tushare_call("daily", {"ts_code": ts_code, "trade_date": trade_date}, use_cache=True)
-    return df.empty
-
-
 def get_trade_calendar(exchange: str = "SSE", start_date: str = None, end_date: str = None) -> pd.DataFrame:
     """获取交易日历，带缓存"""
     key = f"{exchange}:{start_date}:{end_date}"
@@ -132,8 +125,8 @@ def get_trade_calendar(exchange: str = "SSE", start_date: str = None, end_date: 
 def get_trade_date_before(date: str, days: int = 0, exchange: str = "SSE") -> str:
     """获取指定日期前第 N 个交易日（按真实交易日历）"""
     target = datetime.strptime(date, "%Y%m%d")
-    # 取足够宽的范围
-    start = (target - timedelta(days=days * 2 + 30)).strftime("%Y%m%d")
+    # 取足够宽的范围，覆盖超长假期
+    start = (target - timedelta(days=days * 3 + 60)).strftime("%Y%m%d")
     end = date
     cal = get_trade_calendar(exchange, start, end)
     cal = cal[cal["is_open"].astype(int) == 1].sort_values("cal_date", ascending=False)
@@ -146,7 +139,7 @@ def get_trade_date_after(date: str, days: int = 0, exchange: str = "SSE") -> str
     """获取指定日期后第 N 个交易日（按真实交易日历）"""
     target = datetime.strptime(date, "%Y%m%d")
     start = date
-    end = (target + timedelta(days=days * 2 + 30)).strftime("%Y%m%d")
+    end = (target + timedelta(days=days * 3 + 60)).strftime("%Y%m%d")
     cal = get_trade_calendar(exchange, start, end)
     cal = cal[cal["is_open"].astype(int) == 1].sort_values("cal_date", ascending=True)
     if len(cal) <= days:
