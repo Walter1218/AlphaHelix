@@ -13,6 +13,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _tushare_utils import tushare_call, get_trade_date_after
+from _trace import trace_event
 
 BENCHMARK = "000300.SH"
 
@@ -142,7 +143,7 @@ def evaluate(date: str, horizon: int = 20) -> dict:
     else:
         confidence_correlation = 0.0
 
-    return {
+    result = {
         "date": date,
         "exit_date": exit_date,
         "horizon": horizon,
@@ -156,6 +157,27 @@ def evaluate(date: str, horizon: int = 20) -> dict:
         "confidence_correlation": round(confidence_correlation, 4),
         "details": results,
     }
+
+    trace_event(
+        "evaluate",
+        {
+            "inputs": {"date": date, "horizon": horizon, "benchmark": BENCHMARK},
+            "outputs": {
+                "benchmark_return": result["benchmark_return"],
+                "portfolio_return": result["portfolio_return"],
+                "excess_return": result["excess_return"],
+                "direction_accuracy": result["direction_accuracy"],
+                "top3_hit_rate": result["top3_hit_rate"],
+                "portfolio_max_drawdown": result["portfolio_max_drawdown"],
+                "confidence_correlation": result["confidence_correlation"],
+                "details_count": len(results),
+                "valid_count": len(valid),
+            },
+        },
+        date=date,
+    )
+
+    return result
 
 
 def main():

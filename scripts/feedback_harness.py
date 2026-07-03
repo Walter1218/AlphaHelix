@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from factor_ic import compute_ic, load_snapshot, load_eval
 from strategy_tracker import load_strategy_summary, compute_strategy_weights
 from weight_optimizer import optimize_weights, DEFAULT_BASE_WEIGHTS
+from _trace import trace_event
 
 WEIGHTS_DIR = Path("memory/weights")
 PROMPT_DIR = Path("memory/prompt_adaptations")
@@ -180,6 +181,28 @@ def main():
     prompt_path = PROMPT_DIR / "latest.md"
     prompt_path.write_text(prompt_md, encoding="utf-8")
     print(f"  Prompt adaptations saved to {prompt_path}")
+
+    trace_event(
+        "feedback_harness",
+        {
+            "inputs": {
+                "dates": dates,
+                "start": args.start,
+                "end": args.end,
+                "horizon": args.horizon,
+                "strategy": args.strategy,
+                "lr": args.lr,
+            },
+            "outputs": {
+                "factor_ic_count": len(dates),
+                "strategy_weights": st_result.get("strategy_weights", {}).get("weights"),
+                "weights_generated": list(DEFAULT_BASE_WEIGHTS.keys()),
+                "prompt_path": str(prompt_path),
+            },
+        },
+        date=max(dates),
+        strategy=args.strategy,
+    )
 
     print("[harness] Done")
 

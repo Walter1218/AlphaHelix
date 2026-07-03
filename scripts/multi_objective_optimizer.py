@@ -27,6 +27,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _tushare_utils import get_trade_calendar
 from screen import STRATEGIES, rank_fill
+from _trace import trace_event
 
 SNAPSHOT_DIR = Path("memory/stock")
 EVAL_DIR = Path("memory/eval")
@@ -279,6 +280,31 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2))
     print(f"[mo_optimizer] Saved to {output_path}")
+
+    trace_event(
+        "multi_objective_optimize",
+        {
+            "inputs": {
+                "start": args.start,
+                "end": args.end,
+                "strategy": args.strategy,
+                "phase": args.phase,
+                "horizon": args.horizon,
+                "top_n": args.top_n,
+                "threshold": args.threshold,
+                "n_trials": args.n_trials,
+            },
+            "outputs": {
+                "valid_count": result["valid_count"],
+                "best_found": result["best"] is not None,
+                "baseline_metrics": result.get("baseline", {}).get("metrics"),
+                "optimized_metrics": result.get("best", {}).get("metrics"),
+                "output_path": str(output_path),
+            },
+        },
+        date=args.end,
+        strategy=args.strategy,
+    )
 
 
 if __name__ == "__main__":

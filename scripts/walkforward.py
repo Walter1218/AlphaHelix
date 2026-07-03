@@ -18,6 +18,7 @@ from _tushare_utils import get_trade_calendar, get_trade_date_after
 from screen import screen, STRATEGIES
 from evaluate import evaluate
 from market_regime import classify_regime, regime_to_strategy
+from _trace import trace_event, new_run
 
 DEFAULT_STRATEGY = "momentum_value_hybrid"
 DEFAULT_HORIZON = 10
@@ -252,8 +253,28 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    run_id = new_run()
 
     trade_dates = get_monthly_trade_dates(args.start, args.end)
+    trace_event(
+        "walkforward.start",
+        {
+            "inputs": {
+                "start": args.start,
+                "end": args.end,
+                "strategy": args.strategy,
+                "horizon": args.horizon,
+                "top_n": args.top_n,
+                "freq": args.freq,
+                "universe_size": args.universe_size,
+                "skip_st_check": args.skip_st_check,
+                "run_id": run_id,
+                "trade_dates": trade_dates,
+            }
+        },
+        date=trade_dates[0] if trade_dates else args.start,
+        strategy=args.strategy,
+    )
     print(f"[walkforward] Running {len(trade_dates)} periods from {args.start} to {args.end}")
     print(f"[walkforward] Strategy={args.strategy}, horizon={args.horizon}, top_n={args.top_n}")
 
@@ -278,6 +299,26 @@ def main():
             res = {"date": td, "error": str(e)}
         results.append(res)
 
+        if "error" not in res:
+            trace_event(
+                "walkforward.period",
+                {
+                    "outputs": {
+                        "portfolio_return": res.get("portfolio_return"),
+                        "excess_return": res.get("excess_return"),
+                        "direction_accuracy": res.get("direction_accuracy"),
+                        "top3_hit_rate": res.get("top3_hit_rate"),
+                        "benchmark_return": res.get("benchmark_return"),
+                        "candidates": res.get("candidates"),
+                        "actual_strategy": res.get("strategy"),
+                        "regime": res.get("regime"),
+                        "resumed": res.get("resumed", False),
+                    }
+                },
+                date=td,
+                strategy=res.get("strategy", args.strategy),
+            )
+
         # 定期写出进度
         if args.progress_file:
             partial = aggregate_results(results)
@@ -299,6 +340,24 @@ def main():
     out_path = OUTPUT_DIR / f"walkforward_{args.start}_{args.end}_{args.strategy}_h{args.horizon}.json"
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"[walkforward] Summary saved to {out_path}")
+
+    trace_event(
+        "walkforward.summary",
+        {
+            "outputs": {
+                "periods": summary.get("periods"),
+                "skipped": summary.get("skipped"),
+                "avg_portfolio_return": summary.get("avg_portfolio_return"),
+                "avg_excess_return": summary.get("avg_excess_return"),
+                "avg_direction_accuracy": summary.get("avg_direction_accuracy"),
+                "avg_top3_hit_rate": summary.get("avg_top3_hit_rate"),
+                "cumulative_excess_return": summary.get("cumulative_excess_return"),
+                "summary_path": str(out_path),
+            }
+        },
+        date=args.end,
+        strategy=args.strategy,
+    )
 
     print("\n=== Walk-forward Summary ===")
     print(f"Periods: {summary.get('periods', 0)} (skipped: {summary.get('skipped', 0)})")

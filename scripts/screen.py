@@ -17,6 +17,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _tushare_utils import tushare_call, get_trade_date_before, is_st_historical
 from market_regime import classify_regime, regime_to_strategy
+from _trace import trace_event
 
 warnings.filterwarnings("ignore")
 
@@ -561,6 +562,27 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False)
             if phase in dynamic and phase in config and "weights" in config[phase]:
                 config[phase]["weights"] = dynamic[phase]
                 # 如果动态权重带 filters 也可以合并，但默认不覆盖硬编码 filters
+
+    trace_event(
+        "screen.start",
+        {
+            "inputs": {
+                "date": date,
+                "strategy": strategy,
+                "actual_strategy": actual_strategy,
+                "top_n": top_n,
+                "regime_info": regime_info,
+                "dynamic_weights_loaded": dynamic is not None,
+                "pass1_weights": config["pass1"].get("weights"),
+                "pass2_weights": config["pass2"].get("weights"),
+                "pass1_filters": config["pass1"].get("filters"),
+                "pass2_filters": config["pass2"].get("filters"),
+            }
+        },
+        date=date,
+        strategy=actual_strategy,
+    )
+
     df_universe = build_universe(date)
     df_pass1 = pass1_screen(df_universe, date, config["pass1"])
     df_pass2 = pass2_enrich(df_pass1, date, config["pass2"])
@@ -569,6 +591,12 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False)
     df_result = cap_sector_weight(df_pass2, top_n, max_pct=MAX_SECTOR_PCT)
 
     if df_result.empty:
+        trace_event(
+            "screen.end",
+            {"outputs": {"candidates": 0}, "metadata": {"error": "empty result"}},
+            date=date,
+            strategy=actual_strategy,
+        )
         return ([], df_pass2) if return_full else []
 
     output_cols = [
@@ -583,6 +611,24 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False)
     ]
     output_cols = [c for c in output_cols if c in df_result.columns]
     records = df_result[output_cols].to_dict(orient="records")
+
+    trace_event(
+        "screen.end",
+        {
+            "outputs": {
+                "candidates": len(records),
+                "pass2_pool_size": len(df_pass2),
+                "top_picks": [{"ts_code": r["ts_code"], "name": r.get("name"), "score": r.get("total_score")} for r in records[:top_n]],
+            },
+            "metadata": {
+                "universe_size": len(df_universe),
+                "pass1_pool_size": len(df_pass1),
+            },
+        },
+        date=date,
+        strategy=actual_strategy,
+    )
+
     if return_full:
         return records, df_pass2
     return records
