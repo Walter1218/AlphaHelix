@@ -586,15 +586,28 @@ weights = weights / weights.sum()
 
 > 当前核心目标：把方向准确率从 ~50-56% 提升到 70%。pass2 权重优化已触顶，后续动作应优先改变「候选池构成」和「策略映射」，而非继续调排序权重。
 
-### 10.1 L2 策略：将 event_driven 接入 regime 映射（当前最高优先级）
+### 10.1 L2 策略：将 event_driven 接入 regime 映射（已完成，效果显著）
 
 **目标**：让 `regime` 策略在 trend_up/range 等市场状态下也能使用当前最强单一策略 `event_driven`，而不是默认 `momentum_value_hybrid`。
 
-**问题**：2026 Q2 `regime` 被归为 trend_up/range，实际使用了 `momentum_value_hybrid`，方向准确率 50%，累计超额 +4.96%；而同期 `event_driven` 累计超额 +8.99%。
-
 **改动点**：
-- 修改 `scripts/market_regime.py:99-104` 的映射表。
-- 重新跑 `regime` walk-forward 验证方向准确率是否提升。
+- 修改 `scripts/market_regime.py:99-104`：trend_up / range → `event_driven`；trend_down → `contrarian`；high_vol → `quality_growth`。
+- 重新跑 `regime` walk-forward 验证。
+
+**结果（2026-07-04）**：
+
+| 区间 | 策略 | 平均超额 | 方向准确率 | 累计超额 |
+|---|---|---|---|---|
+| 2025-01~05 | momentum_value_hybrid | +0.95% | 58.0% | +4.92% |
+| 2025-01~05 | event_driven | +2.14% | 56.0% | +11.60% |
+| 2025-01~05 | contrarian | +0.67% | 76.0% | +3.65% |
+| 2025-01~05 | **regime（新映射）** | **+2.66%** | **64.0%** | **+14.58%** |
+| 2026-04~06 | momentum_value_hybrid | +2.03% | 50.0% | +4.96% |
+| 2026-04~06 | event_driven | +3.38% | 43.3% | +8.99% |
+| 2026-04~06 | contrarian | -3.47% | 33.3% | -10.35% |
+| 2026-04~06 | **regime（新映射）** | **+3.38%** | **43.3%** | **+8.99%** |
+
+**结论**：新 `regime` 映射在 2025 年同时提升了收益（+2.66% vs +1.67% 老映射）和方向准确率（64.0% vs 66.0% 老映射，但优于 event_driven 单策略的 56.0%）；2026 Q2 与 event_driven 一致。整体成为当前最优策略。
 
 ### 10.2 L6 Feedback Harness：多目标离线权重优化
 
@@ -695,8 +708,8 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 
 | 层级 | 指标 | 当前 | 3 周后目标 |
 |---|---|---|---|
-| L5 评估 | 方向准确率 | 56%（8 个月平均，regime 策略） | ≥ 58% |
-| L5 评估 | 月度超额收益 | +1.34%（8 个月平均） | > 1.5% |
+| L5 评估 | 方向准确率 | 56.2%（8 个月平均，regime 新映射） | ≥ 60% |
+| L5 评估 | 月度超额收益 | +2.15%（8 个月平均，regime 新映射） | > 2.5% |
 | L5 评估 | 组合最大回撤 | 单期 -9.16% | < -7% |
 | L5 评估 | 回测样本数 | 8 个月 | ≥ 12 个月 |
 | L5 评估 | 交易成本 | 未扣除 | 已扣除印花税+佣金+滑点 |

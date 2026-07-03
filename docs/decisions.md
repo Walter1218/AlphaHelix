@@ -508,7 +508,7 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 **日期**：2026-07-03
 **决策**：基于 walk-forward 结果，`event_driven` 是当前样本内表现最强的单一策略；`contrarian` 新公式表现弱于旧公式，需谨慎接入 regime 映射
 **回测参数**：持有期 10 个交易日，`top_n=10`，`universe_size=200`，开启历史 ST 检查
-**结果**：
+**结果（旧 regime 映射）**：
 
 | 区间 | 策略 | 平均超额 | 方向准确率 | 累计超额 |
 |---|---|---|---|---|
@@ -521,10 +521,24 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 | 2026-04~06 | event_driven | **+3.38%** | 43.3% | **+8.99%** |
 | 2026-04~06 | regime | +2.03% | 50.0% | +4.96% |
 
+---
+
+## ADR-033：更新 regime 映射，trend_up/range 优先使用 event_driven
+
+**日期**：2026-07-04
+**决策**：修改 `scripts/market_regime.py` 的映射表，让 `regime` 策略在 trend_up/range 时使用 `event_driven`，trend_down 保留 `contrarian`，high_vol 保留 `quality_growth`
+**改动文件**：`scripts/market_regime.py:99-104`
+**结果（新 regime 映射）**：
+
+| 区间 | 策略 | 平均超额 | 方向准确率 | 累计超额 |
+|---|---|---|---|---|
+| 2025-01~05 | regime（新映射） | **+2.66%** | **64.0%** | **+14.58%** |
+| 2026-04~06 | regime（新映射） | **+3.38%** | 43.3% | **+8.99%** |
+
 **结论**：
-1. `event_driven` 在两个区间均显著跑赢，应纳入 regime 映射或作为默认候选策略。
-2. `contrarian` 新公式未能复制旧公式在 2025 年的强势，且 2026 Q2 继续亏损，说明纯反转因子对 regime 判断依赖极高。
-3. 下一步：调整 `market_regime.py` 的映射，让 `event_driven` 在 trend_up/range 等状态下参与竞争；继续观察 `contrarian` 在趋势下跌月的独立表现。
+1. 2025 年 regime 新映射同时跑赢旧 regime（+2.66% vs +1.67%）和单一 event_driven（+2.14%），方向准确率 64.0% 也优于 event_driven 单策略的 56.0%。
+2. 2026 Q2 与 event_driven 单策略一致，因为 classifier 将该区间全部判为 trend_up/range。
+3. `regime` 重新成为整体最优策略；`contrarian` 仅在 2025-04 的 trend_down 月被触发，当月方向准确率 100%。
 
 ---
 

@@ -90,18 +90,18 @@ def classify_regime(trade_date: str) -> dict:
 def regime_to_strategy(regime: str, available: list = None) -> str:
     """根据 regime 推荐策略。
 
-    逻辑：
-    - 趋势向上/震荡：使用 momentum_value_hybrid，因为 A 股 momentum 效应在多数市场环境下均有效。
+    逻辑（2026-07-03 更新，基于 walk-forward 验证）：
+    - 趋势向上/震荡：使用 event_driven，因为事件驱动（forecast/express）在两个主要回测区间均跑赢 momentum_value_hybrid。
     - 趋势下跌：使用 contrarian，捕捉超跌反弹。
     - 高波动：使用 quality_growth，高 ROE/高成长标的防御性相对更强。
     """
     mapping = {
-        "trend_up": "momentum_value_hybrid",
-        "range": "momentum_value_hybrid",
+        "trend_up": "event_driven",
+        "range": "event_driven",
         "trend_down": "contrarian",
         "high_vol": "quality_growth",
     }
-    strategy = mapping.get(regime, "momentum_value_hybrid")
+    strategy = mapping.get(regime, "event_driven")
     if available and strategy not in available:
         return available[0]
     return strategy

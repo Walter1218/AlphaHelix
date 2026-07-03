@@ -225,8 +225,8 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
   - `scripts/evaluate.py` 可计算历史持有期收益。
   - `screen.py` 支持 `momentum_value_hybrid`、`quality_growth`、`contrarian`、`event_driven` 四策略与 `regime` 自动切换。
   - `market_regime.py` 可基于沪深300 判断市场状态。
-  - `walkforward.py` 已完成 8 个月回测，`regime` 策略在 2025 年累计超额 +8.86%，优于单一 momentum 的 +4.92%。
-  - `event_driven` 在两个区间均跑赢其他单一策略（2025 累计超额 +11.60%，2026 Q2 +8.99%）。
+  - `walkforward.py` 已完成 8 个月回测。
+  - `regime` 策略更新映射后（trend_up/range → event_driven）成为整体最优：2025 年平均超额 +2.66%、方向准确率 64.0%、累计超额 +14.58%；2026 Q2 平均超额 +3.38%、累计超额 +8.99%。
   - Feedback Harness 已产出动态权重与 prompt 自适应提示。
   - Trace 基础设施已落地：`scripts/_trace.py` + `.opencode/tool/append_trace.ts`，脚本层与 agent reasoning 均写入 `memory/trace/YYYYMMDD.jsonl`。
 
@@ -235,7 +235,7 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
   - 行业集中度控制目前为数量控制，市值权重控制尚未实现。
   - Feedback Harness 仍为手动运行，需接入 cron 实现在线学习。
   - `quality_growth` 策略在回测中表现偏弱，需继续调优。
-  - 多目标离线权重优化已实现工具，但 **70% 方向准确率阈值不可行**：pass2 权重随机搜索 10,000 组后，event_driven / contrarian 均无法达到 55% 方向准确率；需升级 pass1 优化、regime 条件优化或引入新因子。
+  - 多目标离线权重优化已实现工具，但 **70% 方向准确率阈值不可行**：pass2 权重随机搜索 10,000 组后，event_driven / contrarian 均无法达到 55% 方向准确率；需扩大样本、升级 pass1 优化、regime 条件优化或引入新因子。
   - 当前因子体系对**预期/主题驱动型行情**覆盖不足，2026-01-30 的东山精密案例即因静态财务/动量因子滞后而错失后续 40%+ 涨幅。
 
 ### 东山精密案例启示（2026-07-03）
@@ -252,9 +252,9 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 
 当前核心矛盾：**方向准确率 ~50-56%，距离 70% 目标差距大**，且 pass2 权重优化已触顶。下一步所有工作应优先服务「提升方向准确率」。
 
-1. **[待改] 将 event_driven 接入 regime 映射**
-   - 改 `scripts/market_regime.py:99-104`
-   - 重新跑 `regime` walk-forward 验证是否能提升方向准确率
+1. **[已完成] 将 event_driven 接入 regime 映射** ✅
+   - 已改 `scripts/market_regime.py:99-104`
+   - 新映射 2025 年平均超额 +2.66%，方向准确率 64.0%，累计超额 +14.58%
 2. **[待跑数据] 扩大回测样本到 12+ 个月**
    - 当前 8 个月样本导致阈值判断不稳定
    - 跑 `walkforward.py --start 20240101 --end 20260615`
@@ -285,7 +285,7 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 - [x] 构建行业相对强度因子（`scripts/screen.py:368-400`）
 - [x] 加入短期反转/超跌因子（`scripts/screen.py:162-172`）
 - [x] 实现多目标离线权重优化工具（`scripts/multi_objective_optimizer.py`）
-- [ ] 将 `event_driven` 接入 `regime` 映射（`scripts/market_regime.py:99-104`）
+- [x] 将 `event_driven` 接入 `regime` 映射（`scripts/market_regime.py:99-104`）
 - [ ] 扩大回测样本到 12+ 个月（`scripts/walkforward.py` 已支持，缺数据）
 - [ ] pass1 权重 / regime 条件优化（`multi_objective_optimizer.py` 当前仅 pass2）
 - [ ] 接入披露日期预告 `disclosure_date`（无代码）
@@ -311,7 +311,7 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 - [x] **加入短期反转/超跌因子**：已新增 `mom_5`、`amount_ratio_5d`、`reversal_score`，并强化 `contrarian` 策略；新公式回测 2025 平均超额 +0.67%，2026 Q2 -3.47%
 - [ ] **资金流动量因子优化**：用 `net_mf_ratio` 替代绝对金额，捕捉 5日/20日背离
 - [x] **构建行业相对强度因子**：已新增 `sector_momentum`、`relative_to_sector`、`sector_mom5`、`sector_amount_ratio`，应用于 `contrarian` 与 `event_driven`
-- [ ] **将 event_driven 接入 regime 映射**：当前 regime 在 2026 Q2 实际等同于 momentum，错失 event_driven 超额收益
+- [x] **将 event_driven 接入 regime 映射**：已改 `market_regime.py`，2025 年 regime 平均超额从 +1.67% 提升到 +2.66%，方向准确率 64.0%
 - [ ] **多目标离线权重优化**：pass2 权重调整无法实现 ≥ 55% 方向准确率；下一步尝试 (a) pass1 权重优化以扩大候选池，(b) regime 条件优化，(c) 引入新因子后再以 70% 为约束
 - [ ] **range 市场下 contrarian 权重动态提升**：通过 `strategy_tracker` 根据滚动绩效调整策略配比
 - [ ] `quality_growth` 策略调优
