@@ -691,7 +691,21 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 
 针对 `quality_growth` 在回测中持续偏弱的问题，通过网格搜索调整其 pass1/pass2 权重与过滤阈值，或将其触发条件限制在财报密集披露期。
 
-### 10.12 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
+### 10.12 L1 数据层：批量数据获取优化（待实现）
+
+**目标**：将 `screen.py` 从按股票逐个调用 `daily` API 改为按 `trade_date` 批量获取全市场日线，回测速度提升 50-100 倍。
+
+**隔离原则**：
+- Harness 层控制时间窗口：`screen.py` / `evaluate.py` 显式传入 `start_date` / `end_date`。
+- Agent 工具不暴露全历史：`.opencode/tool/tushare_daily.ts` 只返回请求窗口内数据。
+- 缓存按 `trade_date` 切片，禁止单只股票全历史缓存。
+- Agent 不直接读取 `.cache/tushare/`。
+
+**输出**：
+- `_tushare_utils.py` 新增批量接口。
+- `screen.py` 构建 universe 后按日期批量拉取日线和 daily_basic。
+
+### 10.13 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
 
 **现状**：基础 Trace 已落地。`scripts/_trace.py` 提供 `trace_event()` 与 `new_run()`；`screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 均已接入。Agent 侧新增 `.opencode/tool/append_trace.ts`，`alpha-analyst` 在关键节点记录 reasoning。
 

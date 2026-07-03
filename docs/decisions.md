@@ -542,6 +542,26 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 
 ---
 
+## ADR-034：批量数据获取的上下文隔离原则（待实现）
+
+**日期**：2026-07-04
+**状态**：待实现
+**问题**：当前 `screen.py` 按股票逐个调用 `daily` API，回测大量历史月份时极慢。未来改为按 `trade_date` 批量获取全市场日线可提升 50-100 倍速度，但必须防止数据泄漏（look-ahead bias）。
+
+**设计原则**：
+1. **Harness 层控制时间窗口**：任何批量数据请求必须由 `screen.py` / `evaluate.py` 等 harness 脚本发起，并显式传入 `start_date` / `end_date`。
+2. **工具层不暴露全历史**：`.opencode/tool/tushare_daily.ts` 等 agent 工具禁止返回超出请求时间窗口的数据。
+3. **缓存切片隔离**：批量缓存按 `trade_date` 或 `date_range` 切片存储，禁止缓存某只股票从上市至今的完整序列。
+4. **Agent 不直接访问缓存**：agent 只能通过工具调用获取数据，不能直接 `read` `.cache/tushare/` 文件。
+5. **回测脚本自我约束**：`walkforward.py` 调用 `screen.py` 时，确保每个 `trade_date` 只使用 ≤ `trade_date` 的数据；`evaluate.py` 只使用 `trade_date` 到 `exit_date` 的价格。
+
+**实现方向**：
+- 新增 `_tushare_utils.py` 批量接口 `tushare_call_batch(api_name, params_list)`，内部并行/限速调用。
+- 新增 `fetch_daily_all(date)` 一次性获取某交易日全市场日线；`screen.py` 构建 universe 后按日期批量拉取。
+- 保留现有单股票接口供 agent 工具使用。
+
+---
+
 ## ADR-029：首次推送到远程仓库前的敏感信息与文档清理
 
 **日期**：2026-07-03
