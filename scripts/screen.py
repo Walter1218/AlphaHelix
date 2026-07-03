@@ -92,7 +92,7 @@ STRATEGIES = {
                 "bp": 0.18, "ep": 0.13, "roe": 0.08, "profit_growth": 0.08,
                 "net_mf_5d": 0.10,
                 "mom_20": -0.10, "mom_60": -0.05,
-                "mom_5": 0.05, "reversal_score": 0.15,
+                "mom_5": 0.05, "reversal_score": 0.10,
                 "sector_momentum": 0.05, "relative_to_sector": 0.05,
                 "liquidity": 0.05,
             },
@@ -159,8 +159,8 @@ def compute_price_factors(df_daily: pd.DataFrame) -> dict:
     avg_amount_5 = amount.tail(5).mean()
     amount_ratio_5d = avg_amount_5 / avg_amount_20 if avg_amount_20 > 0 else 1.0
 
-    # 反转打分：短期跌幅越深、近期有放量反弹，分数越高
-    reversal_score = -(mom_20) * (1 + mom_5) * amount_ratio_5d
+    # 反转打分：短期跌幅越深、近期相对 20 日放量，分数越高
+    reversal_score = -(mom_20) * amount_ratio_5d
 
     return {
         "mom_5": mom_5,

@@ -56,7 +56,7 @@ DEFAULT_BASE_WEIGHTS = {
             "bp": 0.18, "ep": 0.13, "roe": 0.08, "profit_growth": 0.08,
             "net_mf_5d": 0.10,
             "mom_20": -0.10, "mom_60": -0.05,
-            "mom_5": 0.05, "reversal_score": 0.15,
+            "mom_5": 0.05, "reversal_score": 0.10,
             "sector_momentum": 0.05, "relative_to_sector": 0.05,
             "liquidity": 0.05,
         },
