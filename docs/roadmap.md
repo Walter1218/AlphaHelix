@@ -248,22 +248,51 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 
 **结论**：当前因子体系擅长基于已披露基本面和动量选股，但对**预期驱动、主题驱动、事件驱动**的机会存在结构性盲区。已据此新增 `forecast`/`express` 事件因子、短期反转因子和行业相对强度因子；下一步应继续完善事件前置布局、在线学习与自动化调度。
 
-### 下一步优先级（结合代码实现状态重排）
+### 下一步优先级（围绕提升方向准确率重排）
 
-1. **将 event_driven 接入 regime 映射**：当前 regime 在 2026 Q2 实际等同于 momentum，错失 event_driven 超额收益；需改 `market_regime.py` 映射逻辑并重新跑 `regime` walk-forward。
-2. **扩大回测样本到 12+ 个月**：当前仅 8 个月，且 70% 方向准确率阈值因样本不足不可行；需要更多数据验证稳定性。
-3. **在线学习 `--auto`**：让 `feedback_harness.py` 自动发现新增回测结果并增量更新权重。
-4. **自动化调度**：把 `daily-screen.ts` 与 `feedback_harness.py` 接入 cron，实现无人值守。
-5. **pass1 权重 / regime 条件优化**：pass2 权重已接近最优，下一步优化候选池（pass1）或分 regime 优化。
-6. **分行业命中率反馈**：计算每个行业在最近 N 期的命中率，指导 agent 在行业配置上倾斜/回避。
-7. **交易成本与评估层增强**：`evaluate.py` 加入印花税、佣金、滑点。
-8. **数据层补齐**：融资融券、北向资金、龙虎榜、新闻 sentiment。
+当前核心矛盾：**方向准确率 ~50-56%，距离 70% 目标差距大**，且 pass2 权重优化已触顶。下一步所有工作应优先服务「提升方向准确率」。
+
+1. **[待改] 将 event_driven 接入 regime 映射**
+   - 改 `scripts/market_regime.py:99-104`
+   - 重新跑 `regime` walk-forward 验证是否能提升方向准确率
+2. **[待跑数据] 扩大回测样本到 12+ 个月**
+   - 当前 8 个月样本导致阈值判断不稳定
+   - 跑 `walkforward.py --start 20240101 --end 20260615`
+3. **[待扩展工具] pass1 权重 / regime 条件优化**
+   - `multi_objective_optimizer.py` 当前只优化 pass2，需扩展 pass1 或分 regime
+   - 改变候选池比改变 top-n 排序更有可能提升准确率
+4. **[未实现] 接入披露日期预告 `disclosure_date`**
+   - 基于财报披露时间做事件前置布局
+5. **[未实现] 分行业命中率反馈**
+   - 新增 `scripts/sector_tracker.py`
+   - 识别模型在哪些行业有效/失效，指导行业配置
+6. **[未实现] 资金流动量因子优化**
+   - 用 `net_mf_ratio` 替代绝对金额，捕捉 5日/20日背离
+7. **[未实现] 在线学习 `--auto`**
+8. **[未实现/后置] 自动化调度 / 交易成本 / DPO / 新数据源**（accuracy 稳定后再做）
 
 ---
 
 ## 完整开发任务清单
 
 > 以下按 Phase / 轨道汇总，便于一次性查看全部待办。
+
+### 方向准确率提升专项（当前最高优先级）
+
+> 已完成项已结合代码实现打勾；未实现项按对准确率提升的潜在贡献排序。
+
+- [x] 接入业绩预告/快报因子，新增 `event_driven` 策略（`scripts/screen.py:101-127`）
+- [x] 构建行业相对强度因子（`scripts/screen.py:368-400`）
+- [x] 加入短期反转/超跌因子（`scripts/screen.py:162-172`）
+- [x] 实现多目标离线权重优化工具（`scripts/multi_objective_optimizer.py`）
+- [ ] 将 `event_driven` 接入 `regime` 映射（`scripts/market_regime.py:99-104`）
+- [ ] 扩大回测样本到 12+ 个月（`scripts/walkforward.py` 已支持，缺数据）
+- [ ] pass1 权重 / regime 条件优化（`multi_objective_optimizer.py` 当前仅 pass2）
+- [ ] 接入披露日期预告 `disclosure_date`（无代码）
+- [ ] 分行业命中率反馈（`scripts/sector_tracker.py` 未实现）
+- [ ] 资金流动量因子优化（`net_mf_ratio` 5日/20日背离，未实现）
+- [ ] 业绩预亏/暴雷拦截（`forecast.type`，未实现）
+- [ ] 高波动/高杠杆叙事拦截（未实现）
 
 ### Phase 5：自动化调度
 

@@ -582,9 +582,21 @@ weights = weights / weights.sum()
 
 ---
 
-## 10. 立即可执行的 9 个动作
+## 10. 立即可执行的 12 个动作（按提升方向准确率优先级排序）
 
-### 10.1 L6 Feedback Harness：多目标离线权重优化（当前最高优先级）
+> 当前核心目标：把方向准确率从 ~50-56% 提升到 70%。pass2 权重优化已触顶，后续动作应优先改变「候选池构成」和「策略映射」，而非继续调排序权重。
+
+### 10.1 L2 策略：将 event_driven 接入 regime 映射（当前最高优先级）
+
+**目标**：让 `regime` 策略在 trend_up/range 等市场状态下也能使用当前最强单一策略 `event_driven`，而不是默认 `momentum_value_hybrid`。
+
+**问题**：2026 Q2 `regime` 被归为 trend_up/range，实际使用了 `momentum_value_hybrid`，方向准确率 50%，累计超额 +4.96%；而同期 `event_driven` 累计超额 +8.99%。
+
+**改动点**：
+- 修改 `scripts/market_regime.py:99-104` 的映射表。
+- 重新跑 `regime` walk-forward 验证方向准确率是否提升。
+
+### 10.2 L6 Feedback Harness：多目标离线权重优化
 
 **目标**：在方向准确率硬约束下，搜索使超额收益最大的因子权重组合。
 
@@ -616,7 +628,23 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 - `contrarian`：baseline avg_excess=-0.88%，dir_acc=50.0%；同样无组合达到 55% 方向准确率。
 - **结论**：当前 8 期样本下，仅靠 pass2 权重调整无法将方向准确率提升到 55% 以上；baseline 权重对各自候选池已接近最优。要达到 70% 方向准确率，需要扩大样本、优化 pass1 权重、引入新因子，或采用 regime 条件优化。
 
-### 10.2 L7 自动化：接入 cron
+### 10.3 L5 评估：扩展回测样本
+
+运行 `walkforward.py` 覆盖 2024-2025 年更多月份，至少达到 12 个月以上样本，覆盖不同市场环境。样本扩大后，多目标优化的 70% 方向准确率阈值才具备统计意义。
+
+### 10.4 L6 Feedback Harness：分行业命中率反馈
+
+新增 `scripts/sector_tracker.py`，计算最近 N 期每个行业的方向准确率与超额收益，输出到 `memory/sector_tracker/latest.json`，供 agent 调整行业配置。
+
+### 10.5 L1 数据层：接入披露日期预告
+
+基于 Tushare `disclosure_date` 做事件前置布局：在财报披露前识别可能超预期/暴雷的标的，弥补当前 `forecast`/`express` 依赖公告后的滞后性。
+
+### 10.6 L2 因子：资金流动量因子优化
+
+用 `net_mf_ratio` 替代绝对金额，捕捉 5日/20日主力净流入背离信号，强化 contrarian 和 event_driven 的资金面维度。
+
+### 10.7 L7 自动化：接入 cron
 
 配置 cron 实现无人值守：
 
@@ -630,35 +658,27 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 
 同时添加日志轮转与失败通知（可选飞书/邮件）。
 
-### 10.3 L6 Feedback Harness：在线化
+### 10.7 L6 Feedback Harness：在线化
 
 让 `feedback_harness.py` 支持 `--auto` 模式：自动扫描 `memory/eval/` 中最新的 walk-forward 结果，识别新增日期，增量更新 `memory/weights/` 与 `memory/prompt_adaptations/latest.md`。
 
-### 10.4 L6 Feedback Harness：分行业命中率反馈
-
-新增 `scripts/sector_tracker.py`，计算最近 N 期每个行业的方向准确率与超额收益，输出到 `memory/sector_tracker/latest.json`，供 agent 调整行业配置。
-
-### 10.5 L4 Agent：置信度校准
+### 10.8 L4 Agent：置信度校准
 
 统计 agent 给出的 `high/medium/low` 置信度与实际收益的关系。若 `high` 置信度股票实际命中率 < 60%，在 prompt 中提示收紧「high」标准。
 
-### 10.6 L5 评估：加入交易成本
+### 10.9 L5 评估：加入交易成本
 
 在 `evaluate.py` 中扣除 0.1% 单边印花税 + 0.02% 双边佣金 + 滑点，使回测更接近真实收益。
 
-### 10.7 L5 评估：扩展回测样本
-
-运行 `walkforward.py` 覆盖 2024-2025 年更多月份，至少达到 12 个月以上样本，覆盖不同市场环境。
-
-### 10.8 L3 风控：行业市值权重控制
+### 10.10 L3 风控：行业市值权重控制
 
 在 `screen.py` 中按 `total_mv` 计算行业市值权重，单一行业权重超过 40% 时截断，替代当前的数量控制。
 
-### 10.9 L2 策略：调优 quality_growth
+### 10.11 L2 策略：调优 quality_growth
 
 针对 `quality_growth` 在回测中持续偏弱的问题，通过网格搜索调整其 pass1/pass2 权重与过滤阈值，或将其触发条件限制在财报密集披露期。
 
-### 10.10 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
+### 10.12 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
 
 **现状**：基础 Trace 已落地。`scripts/_trace.py` 提供 `trace_event()` 与 `new_run()`；`screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 均已接入。Agent 侧新增 `.opencode/tool/append_trace.ts`，`alpha-analyst` 在关键节点记录 reasoning。
 
