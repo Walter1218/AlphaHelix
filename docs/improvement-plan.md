@@ -660,14 +660,13 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 
 ### 10.10 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
 
-**现状**：基础 Trace 已落地。`scripts/_trace.py` 提供 `trace_event()` 与 `new_run()`；`screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 均已接入，写入 `memory/trace/YYYYMMDD.jsonl`。
+**现状**：基础 Trace 已落地。`scripts/_trace.py` 提供 `trace_event()` 与 `new_run()`；`screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 均已接入。Agent 侧新增 `.opencode/tool/append_trace.ts`，`alpha-analyst` 在关键节点记录 reasoning。
 
 **待完成**：
-1. 把 agent 侧 LLM 思考过程也写入 trace（当前仅在工具/脚本层）。
-2. 定期（每月）根据命中率把 trace 标记为 chosen/rejected，导出 DPO 数据集。
+1. 定期（每月）根据命中率把 trace 标记为 chosen/rejected，导出 DPO 数据集。
 
 **输出**：
-- `memory/trace/YYYYMMDD.jsonl`：单次选股全流程 trace（已可用）。
+- `memory/trace/YYYYMMDD.jsonl`：单次选股全流程 trace + agent reasoning（已可用）。
 - `memory/dpo/chosen.jsonl` / `rejected.jsonl`：待实现。
 
 ---

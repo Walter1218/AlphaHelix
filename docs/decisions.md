@@ -559,12 +559,13 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 - 无法回放某次选股的完整决策链（LLM 想了什么、调用了哪些工具、为什么调整权重）。
 - 无法系统性分析高/低命中率案例的差异。
 
-**下一步选项**：
-1. **利用 HelixAgent 原生 Trace**：研究其 trace 输出格式，在 `daily-screen.ts` 中捕获并保存到 `memory/trace/`。
-2. **自研 AlphaHelix Trace**：在 `screen.py`、`evaluate.py`、`feedback_harness.py` 等关键节点写入结构化 trace（JSONL），记录输入、输出、权重、中间结果。
-3. **轻量 prompt + 结果日志**：在 agent prompt 中要求 LLM 输出思考过程，并保存到 `memory/stock/YYYYMMDD.md` 的 `reasoning` 字段。
+**实现结果**：
+- 已选择并实施方案 2 + 方案 3 的混合：
+  - Python 脚本层：`scripts/_trace.py` 写入结构化 JSONL trace。
+  - Agent 层：新增 `.opencode/tool/append_trace.ts`，`alpha-analyst` 在每个关键步骤调用该工具记录 reasoning。
+- `memory/trace/YYYYMMDD.jsonl` 现在同时包含脚本执行事件和 agent reasoning 事件，便于端到端 case 分析。
 
-**建议**：先选方案 2，因为不依赖 HelixAgent 内部实现，可控性最强；未来若 HelixAgent 开放 trace API，再迁移或补充方案 1。
+---
 
 ---
 
