@@ -705,7 +705,27 @@ subject to avg_direction_accuracy >= threshold（初始 threshold = 70%）
 - `_tushare_utils.py` 新增批量接口。
 - `screen.py` 构建 universe 后按日期批量拉取日线和 daily_basic。
 
-### 10.13 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
+### 10.13 L6 Feedback Harness：Walk-forward 在线学习与 regime 条件权重
+
+**目标**：建立真正的 feedback loop——每期结束后用历史已发生数据更新权重，不同 regime 维护不同权重，使策略随时间自适应。
+
+**现状**：
+- `feedback_harness.py` 用全样本 pooled IC 生成静态权重 `*_latest.json`。
+- `screen.py` 启动时加载 `*_latest.json`，但没有按 regime 区分。
+- `strategy_tracker.py` 能计算滚动策略绩效，但 `market_regime.py` 映射未使用它。
+
+**实现步骤**：
+1. `walkforward.py` 增加 `--online-update`：按时间顺序处理每个 trade_date，每期根据当前 regime 加载滚动权重，跑选股评估，再更新该 regime 权重。
+2. `weight_optimizer.py` 支持 `regime` 参数，基于 regime-specific 最近 N 期数据计算 IC 并更新权重。
+3. `screen.py` 在 `regime` 模式下优先加载 `memory/weights/{strategy}_{regime}_rolling.json`。
+4. 扩展 `market_regime.py`：根据 rolling 策略绩效动态调整 regime→strategy 映射（第二阶段）。
+5. `feedback_harness.py --auto`：自动扫描新增日期并增量更新滚动权重（第三阶段）。
+
+**输出**：
+- `memory/weights/{strategy}_{regime}_rolling.json`
+- 在线学习版 walk-forward 评估报告
+
+### 10.14 L4/L6：建立 AlphaHelix Trace 与 DPO 数据集
 
 **现状**：基础 Trace 已落地。`scripts/_trace.py` 提供 `trace_event()` 与 `new_run()`；`screen.py`、`evaluate.py`、`feedback_harness.py`、`multi_objective_optimizer.py`、`walkforward.py` 均已接入。Agent 侧新增 `.opencode/tool/append_trace.ts`，`alpha-analyst` 在关键节点记录 reasoning。
 

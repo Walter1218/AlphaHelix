@@ -602,6 +602,73 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 
 ---
 
+## ADR-035：Walk-forward 在线学习与 regime 条件权重规划
+
+**日期**：2026-07-04
+**状态**：待实现
+**目标**：建立真正的 feedback loop——每期结束后用历史已发生数据更新权重，且不同 regime 维护不同权重，使策略能随时间自适应。
+
+### 当前 loop 的不足
+
+1. **权重是全样本静态的**：`feedback_harness.py` 用所有历史日期算一个 pooled IC，生成一套 `*_latest.json`，未来所有日期都用同一套权重。
+2. **没有按 regime 区分**：同一套权重同时用于 trend_up/range/trend_down/high_vol，无法适应不同市场环境。
+3. **不是在线学习**：必须手动跑 harness，不能每期自动增量更新。
+4. **策略映射固定**：`market_regime.py` 的 regime→strategy 映射是硬编码，没有根据 rolling 绩效动态调整。
+
+### 设计方案
+
+#### 1. 数据流
+
+```
+walkforward.py --online-update
+    ↓
+对每个 trade_date 按时间顺序处理：
+    1. 根据当前 regime 加载该 regime 的滚动权重
+    2. 用该权重跑 screen.py 选股
+    3. evaluate.py 评估
+    4. 将该期因子值与收益追加到 regime-specific 滚动窗口
+    5. 重新计算该 regime 的 IC，更新权重
+    6. 保存 memory/weights/{strategy}_{regime}_rolling.json
+```
+
+#### 2. 权重更新规则
+
+- 对每个 regime 维护最近 N 期（如 N=6）的选股快照与评估结果。
+- 在该窗口内计算每个因子的 rank IC。
+- 用 `weight_optimizer.py` 的 IC 规则更新权重：`new_weight = old_weight * (1 + lr * IC)`。
+- 更新后的权重只用于下一期及以后，**绝不用于当前期**（防未来函数）。
+
+#### 3. regime 条件权重加载
+
+- `screen.py` 在 `regime` 模式下，确定 `actual_strategy` 和 regime 后：
+  - 优先加载 `memory/weights/{actual_strategy}_{regime}_rolling.json`
+  - fallback 到 `memory/weights/{actual_strategy}_latest.json`
+  - 再 fallback 到硬编码权重
+- 非 regime 模式仍使用策略级权重。
+
+#### 4. 动态策略映射（可选第二阶段）
+
+- `strategy_tracker.py` 已能计算各策略滚动超额收益。
+- 扩展 `market_regime.py`：根据 regime 在最近 N 期各策略的表现，动态选择该 regime 下表现最好的策略。
+- 例如：若最近 6 个月 range 市场下 `event_driven` 明显优于 `momentum_value_hybrid`，则 range→event_driven 可进一步强化。
+
+#### 5. `--auto` 在线 harness（可选第三阶段）
+
+- `feedback_harness.py --auto` 自动扫描 `memory/eval/`，识别新增日期。
+- 对新增日期按 regime 增量更新滚动权重，不重新计算全部历史。
+
+### 防未来函数约束
+
+- T 期权重只能使用 < T 期的数据。
+- 滚动窗口用 `max_lookback` 限制，避免用太远历史。
+- 评估在线学习效果时，必须与静态权重 walk-forward 同参数对比。
+
+### 验收标准
+
+- 在线学习版本的方向准确率 ≥ 静态版本。
+- 不同 regime 的权重有明显差异（如 trend_down 中反转因子权重更高）。
+- 无未来函数：用 T 期权重回测 T-1 期结果不变。
+
 ---
 
 ## 待决策事项
@@ -609,3 +676,4 @@ subject to avg_direction_accuracy >= threshold（threshold >= 70%）
 - [ ] 是否接入实盘交易（当前明确否）
 - [ ] 是否引入机器学习模型做因子组合（Phase 6 评估）
 - [ ] 是否开源（保留选项）
+
