@@ -2,57 +2,58 @@
 
 > 本次 review 针对 MVP 阶段代码实现质量、准确性与可维护性。
 
-## 严重问题（立即修复）
+## 严重问题（已修复）
 
-### 1. 快照日期格式不一致
+### 1. 快照日期格式不一致 ✅
 
 - **位置**：`.opencode/agent/alpha-analyst.md`、`scripts/evaluate.py`、`scripts/walkforward.py`、`scripts/screen.py`
 - **问题**：agent prompt 和部分文档使用 `memory/stock/YYYY-MM-DD.json` 示例，但脚本实际使用 `YYYYMMDD.json`；仓库中还存在 `memory/stock/2026-07-03.json` 与 `20260703.json` 并存。
-- **后果**：HelixAgent 生成的快照 `evaluate.py` 可能找不到；walk-forward 可能重复生成快照。
 - **修复**：统一使用 `YYYYMMDD` 格式，更新 agent prompt 和相关文档，删除不一致的 `2026-07-03.json`。
+- **提交**：`8c840b4`
 
-### 2. `cap_sector_weight` 是死代码
+### 2. `cap_sector_weight` 是死代码 ✅
 
 - **位置**：`scripts/screen.py:506`
 - **问题**：定义了行业数量集中度截断函数，但 `screen()` 中从未调用。
-- **后果**：行业集中度控制未实际生效。
-- **修复**：在 `screen()` 中 `df_pass2.head(top_n)` 前调用 `cap_sector_weight(df_pass2, top_n)`，或删除相关死代码与常量。
+- **修复**：在 `screen()` 中 `df_pass2.head(top_n)` 前调用 `cap_sector_weight(df_pass2, top_n, max_pct=MAX_SECTOR_PCT)`。
+- **提交**：`3de89bd`
 
-### 3. 新因子未进入 IC 计算
+### 3. 新因子未进入 IC 计算 ✅
 
 - **位置**：`scripts/factor_ic.py`、`scripts/walkforward.py`
 - **问题**：`FACTOR_FIELDS` 和 `build_snapshot` 的因子字段列表仍是旧版本，未包含 `mom_5`、`reversal_score`、`sector_momentum`、`forecast_type_score` 等。
-- **后果**：Feedback Harness 无法评估新因子有效性，权重优化也不会作用于它们。
 - **修复**：在两个文件中同步扩展因子字段列表。
+- **提交**：`8e2a3d9`
 
-## 中等问题
+## 中等问题（已修复）
 
-### 4. `feedback_harness.py` 硬编码日期区间
+### 4. `feedback_harness.py` 硬编码日期区间 ✅
 
 - **位置**：`scripts/feedback_harness.py:153`
 - **问题**：硬编码 `("20250101", "20250531")` 和 `("20260401", "20260615")`。
-- **后果**：换其他回测区间时策略表现合并失效。
-- **修复**：根据 `args.start`/`args.end` 自动分年/分段，或删除硬编码逻辑。
+- **修复**：直接加载 `args.start`/`args.end` 区间的策略汇总，删除硬编码合并逻辑。
+- **提交**：`0b3fb59`
 
-### 5. `reversal_score` 公式设计存疑
+### 5. `reversal_score` 公式设计存疑 ✅
 
 - **位置**：`scripts/screen.py:163`
 - **问题**：`reversal_score = -mom_20 * (1 + mom_5) * amount_ratio_5d`，当 `mom_5` 为负时会压低分数。
-- **后果**：可能错过持续下跌后的反转机会。
-- **修复**：改为 `-mom_20 * amount_ratio_5d`，将 `mom_5` 作为独立正向因子。
+- **修复**：改为 `reversal_score = -mom_20 * amount_ratio_5d`；在 contrarian pass2 中显式加入 `mom_5` 权重。
+- **提交**：`e1408c5`
 
-### 6. `_tushare_utils.py` 模块级 token 加载
+### 6. `_tushare_utils.py` 模块级 token 加载 ✅
 
 - **位置**：`scripts/_tushare_utils.py:15-20`
 - **问题**：导入时就检查 `TUSHARE_TOKEN` 并调用 `ts.set_token`。
-- **后果**：无法做纯静态检查/文档生成，测试也不方便。
-- **修复**：延迟到第一次 `tushare_call` 时再初始化。
+- **修复**：使用 `_get_pro()` 延迟初始化，模块导入不再依赖环境变量。
+- **提交**：`3cb828a`
 
-### 7. `is_delisted_historical` 未使用
+### 7. `is_delisted_historical` 未使用 ✅
 
 - **位置**：`scripts/_tushare_utils.py:104-108`
 - **问题**：函数已定义但无调用方。
-- **修复**：删除或统一在 `pass1_screen` 中使用。
+- **修复**：删除该函数；同时放宽 `get_trade_date_before/after` 的日历缓冲天数。
+- **提交**：`d8143a4`
 
 ## 轻微问题 / 已知限制
 
@@ -77,16 +78,22 @@
 
 - 轻微未来函数：历史上已退市但当前不在 list_status 的股票会被排除。对回测影响有限，因为 `pass1` 还会用价格存在性过滤。
 
-## 修复优先级
+## 修复状态
 
-1. P0：统一快照日期格式（#1）
-2. P0：新因子进入 IC 计算（#3）
-3. P1：调用 `cap_sector_weight` 或删除死代码（#2）
-4. P1：去掉 `feedback_harness.py` 硬编码日期（#4）
-5. P2：优化 `reversal_score` 公式（#5）
-6. P2：延迟加载 Tushare token（#6）
-7. P3：清理 `is_delisted_historical`（#7）
-8. P3：JSON NaN 处理、agent prompt 更新、缓冲天数等其他改进
+- ✅ P0：统一快照日期格式（#1）— `8c840b4`
+- ✅ P0：新因子进入 IC 计算（#3）— `8e2a3d9`
+- ✅ P1：调用 `cap_sector_weight`（#2）— `3de89bd`
+- ✅ P1：去掉 `feedback_harness.py` 硬编码日期（#4）— `0b3fb59`
+- ✅ P2：优化 `reversal_score` 公式（#5）— `e1408c5`
+- ✅ P2：延迟加载 Tushare token（#6）— `3cb828a`
+- ✅ P3：清理 `is_delisted_historical` 并放宽日历缓冲（#7）— `d8143a4`
+
+## 剩余建议（后续按需处理）
+
+1. JSON `NaN` 输出改为严格 `null`
+2. `evaluate.py` 加入复权与交易成本
+3. `alpha-analyst.md` 已更新提及 `event_driven`
+4. `build_universe` 当前 `list_status='L'` 的轻微历史偏差（已有价格存在性二次过滤）
 
 ## 做得好的地方
 
