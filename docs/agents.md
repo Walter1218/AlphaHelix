@@ -258,3 +258,30 @@ write 工具写入 memory/stock/YYYYMMDD.md + .json
 | 单次选股 | `primary` | 当前 MVP 主流程 |
 | 多策略对比 | `compose` / `max` | 未来生成多个候选策略并评分 |
 | 数据查询 | `ask` | 仅查询数据，不做推荐 |
+
+## 6. 注意事项
+
+### 6.1 敏感信息
+
+- **禁止在代码、文档或提交记录中硬编码 `TUSHARE_TOKEN`**。token 必须通过 `.env` 注入。
+- 仓库中的 `.env.example` 仅含占位符，复制为 `.env` 后再填入真实 token。
+- 不要提交 `memory/` 下的选股报告、回测结果、权重文件、日志等运行时数据；这些目录已通过 `.gitignore` 排除。
+
+### 6.2 路径占位符
+
+- 文档中涉及的本地路径（如 `/path/to/AlphaHelix`、`<path-to-HelixAgent>`）均为占位符，部署或运行时请替换为实际绝对路径。
+- cron 示例中的 `/usr/local/bin/bun` 和 `/usr/local/bin/python3` 也可能因环境不同而变化，请用 `which bun` / `which python3` 确认。
+
+### 6.3 `memory/` 目录
+
+- `memory/stock/`、`memory/eval/`、`memory/weights/`、`memory/prompt_adaptations/` 等均为运行时产物。
+- 首次克隆后这些目录为空，执行 `daily-screen.ts`、`walkforward.py` 或 `feedback_harness.py` 后会自动生成。
+- 若需备份历史选股记录，请单独备份 `memory/`；仓库本身不保存这些文件。
+
+### 6.4 远程仓库
+
+- 代码已推送至 `https://github.com/Walter1218/AlphaHelix`。
+- 后续提交前请再次检查：
+  1. `git diff --check` 无空白错误；
+  2. 无新增的 token、密码或个人本地路径；
+  3. `memory/`、`.cache/`、`*.log` 等未出现在 `git status` 的待提交列表中。
