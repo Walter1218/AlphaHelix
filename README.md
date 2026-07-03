@@ -100,7 +100,7 @@ AlphaHelix/
 ### 1. 安装依赖
 
 ```bash
-cd /Users/onetwo/Documents/trae_projects/AlphaHelix
+cd /path/to/AlphaHelix
 bun install
 pip install tushare pandas numpy
 ```

@@ -6,10 +6,10 @@
 
 ### 1.1 项目结构
 
-调研仓库：
-- `/Users/onetwo/Documents/trae_projects/HelixAgent`
-- `/Users/onetwo/Documents/trae_projects/Helix`
-- `/Users/onetwo/Documents/trae_projects/bubu/`（现有 tushare 脚本参考）
+调研仓库（本地路径，请替换为实际路径）：
+- `<path-to-HelixAgent>`
+- `<path-to-Helix>`
+- `<path-to-bubu>/`（现有 tushare 脚本参考）
 
 ### 1.2 可复用的核心能力
 
@@ -60,7 +60,7 @@
 
 ### 2.3 现有脚本参考
 
-`/Users/onetwo/Documents/trae_projects/bubu/fund_screener.py` 已实现：
+`<path-to-bubu>/fund_screener.py`（本地参考脚本）已实现：
 - DataAgent：拉取 ETF 列表与日线
 - AlphaAgent：计算动量、流动性、波动率因子
 - RiskAgent：按成交额与波动率过滤
@@ -108,7 +108,7 @@ AlphaHelix 在此基础上扩展为股票池，并加入 LLM 推理层。
 
 ## 5. 参考资料
 
-- HelixAgent README: `/Users/onetwo/Documents/trae_projects/HelixAgent/README.md`
-- Helix README: `/Users/onetwo/Documents/trae_projects/Helix/README.md`
+- HelixAgent README: `<path-to-HelixAgent>/README.md`
+- Helix README: `<path-to-Helix>/README.md`
 - Tushare Pro: https://tushare.pro
 - Tushare Skills: https://github.com/waditu-tushare/skills

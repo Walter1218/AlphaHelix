@@ -29,7 +29,7 @@ AlphaHelix/
 ### 3.1 每日选股
 
 ```bash
-cd /Users/onetwo/Documents/trae_projects/AlphaHelix
+cd /path/to/AlphaHelix
 bun run scripts/daily-screen.ts
 ```
 
@@ -84,7 +84,7 @@ crontab -e
 添加（以 macOS 为例，工作日 15:30 执行）：
 
 ```cron
-30 15 * * 1-5 cd /Users/onetwo/Documents/trae_projects/AlphaHelix && /usr/local/bin/bun run scripts/daily-screen.ts >> memory/log/cron-daily-screen.log 2>&1
+30 15 * * 1-5 cd /path/to/AlphaHelix && /usr/local/bin/bun run scripts/daily-screen.ts >> memory/log/cron-daily-screen.log 2>&1
 ```
 
 > 若 `bun` 路径不同，请用 `which bun` 确认。
@@ -92,7 +92,7 @@ crontab -e
 ### 4.2 历史评估（可选）
 
 ```cron
-0 9 * * 1-5 cd /Users/onetwo/Documents/trae_projects/AlphaHelix && /usr/local/bin/python3 scripts/evaluate.py $(date -v-20d +%Y%m%d) 20 >> memory/log/cron-evaluate.log 2>&1
+0 9 * * 1-5 cd /path/to/AlphaHelix && /usr/local/bin/python3 scripts/evaluate.py $(date -v-20d +%Y%m%d) 20 >> memory/log/cron-evaluate.log 2>&1
 ```
 
 > Linux 用户将 `date -v-20d +%Y%m%d` 替换为 `date -d '20 days ago' +%Y%m%d`。
@@ -102,7 +102,7 @@ crontab -e
 在每月第一个交易日收盘后手动执行：
 
 ```bash
-cd /Users/onetwo/Documents/trae_projects/AlphaHelix
+cd /path/to/AlphaHelix
 # 更新 dates 为上个月末各选股日
 python scripts/feedback_harness.py \
   --dates <逗号分隔日期> \
@@ -113,7 +113,7 @@ python scripts/feedback_harness.py \
 待 `--auto` 模式实现后，可改为 cron：
 
 ```cron
-0 18 1 * * cd /Users/onetwo/Documents/trae_projects/AlphaHelix && /usr/local/bin/python3 scripts/feedback_harness.py --auto >> memory/log/cron-feedback.log 2>&1
+0 18 1 * * cd /path/to/AlphaHelix && /usr/local/bin/python3 scripts/feedback_harness.py --auto >> memory/log/cron-feedback.log 2>&1
 ```
 
 ## 5. 日志管理

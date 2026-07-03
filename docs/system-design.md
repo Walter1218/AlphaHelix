@@ -260,13 +260,13 @@ Prompt 分三部分：
 
 ```bash
 # 交易日 15:30 选股
-30 15 * * 1-5 cd /Users/onetwo/Documents/trae_projects/AlphaHelix && bun run scripts/daily-screen.ts
+30 15 * * 1-5 cd /path/to/AlphaHelix && bun run scripts/daily-screen.ts
 
 # 每月第一个交易日 09:00 更新 feedback harness
-0 9 1 * * cd /Users/onetwo/Documents/trae_projects/AlphaHelix && python scripts/feedback_harness.py --auto
+0 9 1 * * cd /path/to/AlphaHelix && python scripts/feedback_harness.py --auto
 
 # 每周一 08:00 生成周报
-0 8 * * 1 cd /Users/onetwo/Documents/trae_projects/AlphaHelix && python scripts/generate_weekly_report.py
+0 8 * * 1 cd /path/to/AlphaHelix && python scripts/generate_weekly_report.py
 ```
 
 #### 3.7.2 监控指标

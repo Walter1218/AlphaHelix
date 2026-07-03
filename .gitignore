@@ -2,11 +2,14 @@
 node_modules/
 *.lock
 
-# Environment
+# Environment / secrets
 .env
 .env.local
+.env.*.local
+.env.production
+.env.development
 
-# Outputs
+# Outputs / caches
 output/
 .cache/
 *.log
@@ -15,10 +18,25 @@ output/
 __pycache__/
 *.pyc
 .pytest_cache/
+*.egg-info/
+.venv/
+venv/
 
-# Memory is user data but we keep a sample
-memory/stock/*.md
+# Runtime memory / generated artifacts (user data, backtest results, weights, prompts)
+memory/
+!memory/.gitkeep
 !memory/stock/.gitkeep
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# HelixAgent local state
+.mimo/

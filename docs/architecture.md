@@ -189,7 +189,7 @@ AlphaHelix 是构建在 HelixAgent 之上的 A 股智能选股智能体。它由
 通过 HelixAgent CLI 以 headless 模式启动：
 
 ```bash
-cd /Users/onetwo/Documents/trae_projects/AlphaHelix
+cd /path/to/AlphaHelix
 export MIMOCODE_HOME=/path/to/HelixAgent/.mimo
 export TUSHARE_TOKEN=...
 bun /path/to/HelixAgent/packages/opencode/src/index.ts run \
@@ -207,10 +207,10 @@ MVP 阶段使用 `cron` 调用 `scripts/daily-screen.ts`：
 
 ```bash
 # 交易日 15:30 选股
-30 15 * * 1-5 cd /Users/onetwo/Documents/trae_projects/AlphaHelix && bun run scripts/daily-screen.ts
+30 15 * * 1-5 cd /path/to/AlphaHelix && bun run scripts/daily-screen.ts
 
 # 每月第一个交易日 09:00 更新 feedback harness
-0 9 1 * * cd /Users/onetwo/Documents/trae_projects/AlphaHelix && python scripts/feedback_harness.py --auto
+0 9 1 * * cd /path/to/AlphaHelix && python scripts/feedback_harness.py --auto
 ```
 
 > `--auto` 参数待实现：让 harness 自动发现最新可用的回测日期并增量更新。

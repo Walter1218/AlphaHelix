@@ -471,6 +471,18 @@
 
 ---
 
+## ADR-029：首次推送到远程仓库前的敏感信息与文档清理
+
+**日期**：2026-07-03
+**决策**：在推送到 `https://github.com/Walter1218/AlphaHelix` 前，统一清理个人本地路径、将运行时数据目录排除在版本控制外，并更新文档标记已完成项
+**处理内容**：
+1. 将所有文档和 README 中的 `/Users/onetwo/Documents/trae_projects/AlphaHelix` 替换为 `/path/to/AlphaHelix`。
+2. 将 `memory/`（选股报告、回测结果、权重、prompt 自适应提示、日志）整体加入 `.gitignore`，仅保留 `.gitkeep`；已提交的历史运行时数据通过 `git rm --cached` 取消跟踪。
+3. 确认 `TUSHARE_TOKEN` 未硬编码在任何源码或文档中，仅通过 `.env` 注入。
+4. 更新 `docs/roadmap.md`、`docs/improvement-plan.md` 等文档，标记事件/反转/行业相对强度因子已完成，并修正 `reversal_score` 公式描述。
+
+---
+
 ## 待决策事项
 
 - [ ] 是否接入实盘交易（当前明确否）

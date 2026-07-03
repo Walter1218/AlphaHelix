@@ -9,7 +9,7 @@ Feedback Harness 只是 AlphaHelix 进化体系中的一个层级。全局上，
 | 层级 | 核心职责 | 已落地 | 下一步重点 |
 |---|---|---|---|
 | **L1 数据层** | 稳定、高效、低延迟地获取 Tushare 数据；缓存与防穿越 | `tushare_*.ts` 工具集、`_tushare_utils.py` JSON 缓存、`ann_date` 校验 | 补齐行业、融资融券、北向资金、龙虎榜等数据源 |
-| **L2 因子/策略层** | 本地计算多维度因子；多策略 ensemble；regime 切换 | `screen.py` 12+ 因子；`momentum_value_hybrid` / `quality_growth` / `contrarian`；`market_regime.py`；`regime` 自动切换 | 继续调优 `quality_growth`；引入行业轮动与宏观 regime 指标 |
+| **L2 因子/策略层** | 本地计算多维度因子；多策略 ensemble；regime 切换 | `screen.py` 18+ 因子；`momentum_value_hybrid` / `quality_growth` / `contrarian` / `event_driven`；`market_regime.py`；`regime` 自动切换 | 继续调优 `quality_growth`；引入行业轮动与宏观 regime 指标 |
 | **L3 风控/ Cardinal 层** | 拦截不合格标的；控制行业集中度；止损与仓位建议 | 历史 ST/退市过滤、流动性过滤、`ann_date` 防穿越、数量级行业集中度 | 市值权重控制、业绩预亏/暴雷拦截、高波动/高杠杆叙事拦截 |
 | **L4 执行/Agent 层** | 调用 LLM 做定性分析、生成报告、写入 memory | `alpha-analyst.md`、`.opencode/tool/`、`daily-screen.ts` | prompt 工程、置信度校准、失败重试 |
 | **L5 评估层** | 持有期后确定性计算收益与风险指标 | `evaluate.py`、`walkforward.py`、8 个月回测 | 加入交易成本、分行业命中率、更长样本 |
@@ -173,10 +173,10 @@ AlphaHelix 已从「能跑通单次选股」的 MVP，演进为具备多策略 r
 
 ### 3.1 目标
 
-- **已完成**：从 5 个因子扩展到 4 大类 12+ 因子（动量、估值、质量、资金），落地到 `scripts/screen.py`（2026-07-03）。
-- **下一阶段（基于东山精密案例）**：补齐预期/主题驱动型行情所需的因子：业绩预告/快报事件因子、短期反转/超跌因子、行业相对强度、资金流动量（ratio）与 5日/20日背离。
+- **已完成**：从 5 个因子扩展到 6 大类 18+ 因子（动量、估值、质量、资金、事件、反转、行业相对强度），落地到 `scripts/screen.py`（2026-07-03）。
+- **下一阶段**：优化资金流动量（ratio）与 5日/20日背离、range 市场下 contrarian 权重动态提升、调优 quality_growth。
 
-> **状态**：12+ 因子已落地（2026-07-03）。首次回测样本（2026-06-15，10 日持有期）方向准确率从 20% 提升到 70%，超额收益从 -3.20% 提升到 +7.70%。
+> **状态**：18+ 因子已落地（2026-07-03）。首次回测样本（2026-06-15，10 日持有期）方向准确率从 20% 提升到 70%，超额收益从 -3.20% 提升到 +7.70%。
 
 ### 3.2 因子体系
 
@@ -191,9 +191,11 @@ AlphaHelix 已从「能跑通单次选股」的 MVP，演进为具备多策略 r
 | `risk_adj_mom` | `mom_20 / volatility_20` | 波动率调整动量 |
 | `relative_strength` | `mom_20_stock / mom_300_index` | 相对沪深300 强度 |
 | `amount_ratio_5d` | `avg_amount_5 / avg_amount_20` | 近期成交额相对 20 日放量比 |
-| `reversal_score` | `-mom_20 * (1 + mom_5) * amount_ratio_5d` | 超跌且近期放量反弹得分 |
+| `reversal_score` | `-mom_20 * amount_ratio_5d` | 超跌且近期放量反弹得分 |
 | `sector_momentum` | 行业成分股平均 mom_20 | 行业相对动量 |
 | `relative_to_sector` | `mom_20 - sector_momentum` | 个股相对行业动量 |
+| `sector_mom5` | 行业成分股平均 mom_5 | 行业超短期动量 |
+| `sector_amount_ratio` | 行业成分股平均 amount_ratio_5d | 行业近期放量比 |
 
 #### 3.2.2 估值类
 
@@ -583,10 +585,10 @@ weights = weights / weights.sum()
 
 ```bash
 # 交易日 15:30 选股
-30 15 * * 1-5 cd /Users/onetwo/Documents/trae_projects/AlphaHelix && bun run scripts/daily-screen.ts
+30 15 * * 1-5 cd /path/to/AlphaHelix && bun run scripts/daily-screen.ts
 
 # 每月第一个交易日 09:00 更新 feedback harness
-0 9 1 * * cd /Users/onetwo/Documents/trae_projects/AlphaHelix && python scripts/feedback_harness.py --auto
+0 9 1 * * cd /path/to/AlphaHelix && python scripts/feedback_harness.py --auto
 ```
 
 同时添加日志轮转与失败通知（可选飞书/邮件）。
