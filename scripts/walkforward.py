@@ -20,6 +20,7 @@ from evaluate import evaluate
 from market_regime import classify_regime, regime_to_strategy
 from _trace import trace_event, new_run
 from online_weight_updater import load_rolling_weights, update_regime_weights
+from calibrate_weights_from_ic import compute_pass2_weights_for_dates
 
 DEFAULT_STRATEGY = "momentum_value_hybrid"
 DEFAULT_HORIZON = 10
@@ -309,12 +310,20 @@ def main():
     parser.add_argument("--online-lookback", type=int, default=6, help="Rolling window size for online weight update")
     parser.add_argument("--online-lr", type=float, default=0.5, help="Learning rate for online weight update")
     parser.add_argument("--min-score", type=float, default=None, help="Minimum top-score threshold; below this the period is treated as cash")
+    parser.add_argument("--pass2-weights", type=str, default=None, help="Path to JSON file with pass2 weights to override")
+    parser.add_argument("--ic-calibrate", action="store_true", help="Walk-forward out-of-sample IC calibration: use prior periods to set pass2 weights")
+    parser.add_argument("--ic-min-ic", type=float, default=0.0, help="Minimum IC threshold for ic-calibrate")
     args = parser.parse_args()
 
     if args.universe_size is not None:
         os.environ["AH_UNIVERSE_SAMPLE"] = str(args.universe_size)
     if args.skip_st_check:
         os.environ["AH_SKIP_ST_CHECK"] = "1"
+
+    pass2_weights_override = None
+    if args.pass2_weights:
+        with open(args.pass2_weights, "r", encoding="utf-8") as f:
+            pass2_weights_override = json.load(f)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -339,6 +348,9 @@ def main():
                 "online_lookback": args.online_lookback,
                 "online_lr": args.online_lr,
                 "min_score": args.min_score,
+                "pass2_weights": args.pass2_weights,
+                "ic_calibrate": args.ic_calibrate,
+                "ic_min_ic": args.ic_min_ic,
                 "run_id": run_id,
                 "trade_dates": trade_dates,
             }
@@ -353,6 +365,8 @@ def main():
     start_time = datetime.now()
     # 在线学习：预加载各 regime 滚动权重
     current_weights = {}
+    # IC 校准或在线学习时，不能恢复旧结果，因为每期权重不同
+    allow_resume = not args.no_resume and not args.online_update and not args.ic_calibrate
     for idx, td in enumerate(trade_dates, 1):
         period_start = datetime.now()
         print(f"[walkforward] [{idx}/{len(trade_dates)}] {td} ...", end=" ", flush=True)
@@ -371,13 +385,22 @@ def main():
             pass1_weights = current_weights[wkey].get("pass1")
             pass2_weights = current_weights[wkey].get("pass2")
 
+        # IC walk-forward 校准：用之前所有期生成 pass2 权重
+        if args.ic_calibrate and idx > 1:
+            prior_dates = trade_dates[:idx-1]
+            ic_pass2 = compute_pass2_weights_for_dates(prior_dates, min_ic=args.ic_min_ic)
+            if ic_pass2:
+                pass2_weights = ic_pass2
+
         try:
+            # 显式 pass2 权重覆盖优先级最高
+            effective_pass2 = pass2_weights_override if pass2_weights_override is not None else pass2_weights
             res = run_single_period(
                 td, args.strategy, args.horizon, args.top_n,
-                resume=not args.no_resume,
+                resume=allow_resume,
                 online_update=args.online_update,
                 pass1_weights=pass1_weights,
-                pass2_weights=pass2_weights,
+                pass2_weights=effective_pass2,
                 min_score=args.min_score,
             )
             elapsed = (datetime.now() - period_start).total_seconds()

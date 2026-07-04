@@ -233,6 +233,7 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
   - 周度再平衡静态表现优于月度（平均超额 +0.60% vs +0.02%），但在线学习周度 +0.01% 仍劣于静态，且累计超额 -41.59%。
   - Tushare 并发预取与数据上下文隔离已落地：周度 127 期 walk-forward 可在约 100 分钟内完成；数据接口现在受 `ALPHAHELIX_DATA_WINDOW_START/END` 约束。
   - 选股分数阈值实验：`--min-score 0.65` 在月度样本上把累计超额从 -4.44% 提升到 -0.94%，但方向准确率从 49.4% 降到 47.4%；高阈值会过度空仓。
+  - 历史 IC 权重校准：样本内（用全样本 IC 重算权重）平均超额大幅升到 +0.84%、方向准确率 54.4%，但 walk-forward 样本外仅 +0.12%/50.1%，说明仍有过拟合；rank 命中率仍未单调。
   - Feedback Harness 已产出动态权重与 prompt 自适应提示。
   - Trace 基础设施已落地：`scripts/_trace.py` + `.opencode/tool/append_trace.ts`，脚本层与 agent reasoning 均写入 `memory/trace/YYYYMMDD.jsonl`。
 
@@ -289,7 +290,11 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 10. **[已完成/待优化] 选股分数阈值与空仓机制**
    - `walkforward.py --min-score` 已支持；月度样本 0.65 阈值累计超额从 -4.44% 提升到 -0.94%
    - 下一步： regime 自适应阈值、滚动网格搜索、分数差距阈值
-11. **[未实现] 熊市/急跌防御机制**
+11. **[已完成/实验性] 基于历史 IC 的 pass2 权重校准**
+   - `scripts/calibrate_weights_from_ic.py` + `walkforward.py --ic-calibrate` 已落地
+   - 样本内效果显著，但 walk-forward 样本外仅小幅改善（平均超额 +0.12% vs +0.02%）
+   - 下一步：pass1 也做 IC 校准、按 regime 分别校准、引入更稳定因子
+12. **[未实现] 熊市/急跌防御机制**
    - 动态仓位、空仓选项、趋势过滤、regime 条件权重
 12. **[未实现/后置] 自动化调度 / 交易成本 / DPO / 新数据源**（accuracy 稳定后再做）
 
