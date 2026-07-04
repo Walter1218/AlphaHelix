@@ -39,16 +39,23 @@ def format_date(d: datetime) -> str:
     return d.strftime("%Y%m%d")
 
 
-def get_monthly_trade_dates(start_date: str, end_date: str) -> list:
-    """获取每月最后一个交易日作为选股日。"""
+def get_rebalance_dates(start_date: str, end_date: str, freq: str = "monthly") -> list:
+    """获取再平衡选股日列表。freq 支持 monthly（每月最后一个交易日）或 weekly（每周最后一个交易日）。"""
     cal = get_trade_calendar("SSE", start_date, end_date)
     cal = cal[cal["is_open"].astype(int) == 1].copy()
     cal["cal_date"] = pd.to_datetime(cal["cal_date"], format="%Y%m%d")
     cal = cal.sort_values("cal_date")
-    cal["ym"] = cal["cal_date"].dt.to_period("M")
-    # 每月最后一个交易日
-    monthly = cal.groupby("ym")["cal_date"].last().dt.strftime("%Y%m%d").tolist()
-    return monthly
+
+    if freq == "weekly":
+        # 按自然周（周日结束）分组，取每周最后一个交易日
+        cal["week"] = cal["cal_date"].dt.to_period("W-SUN")
+        rebalance = cal.groupby("week")["cal_date"].last().dt.strftime("%Y%m%d").tolist()
+    elif freq == "monthly":
+        cal["ym"] = cal["cal_date"].dt.to_period("M")
+        rebalance = cal.groupby("ym")["cal_date"].last().dt.strftime("%Y%m%d").tolist()
+    else:
+        raise ValueError(f"Unsupported freq: {freq}. Use 'monthly' or 'weekly'.")
+    return rebalance
 
 
 def _pick_from_candidate(c: dict, rank: int, factor_fields: list) -> dict:
@@ -244,7 +251,7 @@ def main():
     parser.add_argument("--strategy", default=DEFAULT_STRATEGY, help="Screening strategy; use 'regime' to switch by market regime")
     parser.add_argument("--horizon", type=int, default=DEFAULT_HORIZON, help="Holding horizon in trading days")
     parser.add_argument("--top-n", type=int, default=10, help="Number of picks per period")
-    parser.add_argument("--freq", default="monthly", choices=["monthly"], help="Rebalance frequency")
+    parser.add_argument("--freq", default="monthly", choices=["monthly", "weekly"], help="Rebalance frequency")
     parser.add_argument("--universe-size", type=int, default=None, help="Override screen.py UNIVERSE_SAMPLE (smaller=faster)")
     parser.add_argument("--skip-st-check", action="store_true", help="Skip historical ST check for speed (not for production)")
     parser.add_argument("--no-resume", action="store_true", help="Re-run even if previous results exist")
@@ -265,7 +272,7 @@ def main():
         Path("memory/weights").mkdir(parents=True, exist_ok=True)
     run_id = new_run()
 
-    trade_dates = get_monthly_trade_dates(args.start, args.end)
+    trade_dates = get_rebalance_dates(args.start, args.end, freq=args.freq)
     trace_event(
         "walkforward.start",
         {
@@ -386,7 +393,7 @@ def main():
     summary["horizon"] = args.horizon
     summary["top_n"] = args.top_n
 
-    out_path = OUTPUT_DIR / f"walkforward_{args.start}_{args.end}_{args.strategy}_h{args.horizon}.json"
+    out_path = OUTPUT_DIR / f"walkforward_{args.start}_{args.end}_{args.strategy}_h{args.horizon}_{args.freq}.json"
     out_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
     print(f"[walkforward] Summary saved to {out_path}")
 

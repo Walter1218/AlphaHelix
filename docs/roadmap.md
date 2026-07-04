@@ -230,6 +230,8 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
   - 分年度表现差异显著：2025 年强劲（平均超额 +1.48%、方向准确率 58.3%），2024 年偏弱（-0.37%、48.3%），2026 H1 较差（-2.14%、33.5%）。
   - 早期 8 个月样本（2025 + 2026 Q2）存在样本选择偏差：跳过了 2026 年 1-2 月的大幅下跌，夸大了策略表现。
   - 在线学习 v1（`--online-update`）已验证：同参数下方向准确率 51.5%（+2.1pp），但累计超额 -6.13% 劣于静态 -4.44%，当前默认不启用。
+  - 周度再平衡静态表现优于月度（平均超额 +0.60% vs +0.02%），但在线学习周度 +0.01% 仍劣于静态，且累计超额 -41.59%。
+  - Tushare 并发预取与数据上下文隔离已落地：周度 127 期 walk-forward 可在约 100 分钟内完成；数据接口现在受 `ALPHAHELIX_DATA_WINDOW_START/END` 约束。
   - Feedback Harness 已产出动态权重与 prompt 自适应提示。
   - Trace 基础设施已落地：`scripts/_trace.py` + `.opencode/tool/append_trace.ts`，脚本层与 agent reasoning 均写入 `memory/trace/YYYYMMDD.jsonl`。
 
@@ -263,23 +265,29 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 2. **[已完成] 扩大回测样本到 30 个月**
    - 已跑 `walkforward.py --start 20240101 --end 20260615`
    - 全样本 30 个月平均超额 +0.02%，方向准确率 49.4%，累计超额 -4.44%
-3. **[已完成/待优化] 在线学习 `--online-update`** ✅
+3. **[已完成] Tushare 并发预取与数据隔离** ✅
+   - `scripts/prefetch_data.py` 已落地，`ALPHAHELIX_DATA_WINDOW_START/END` 已生效
+   - `screen.py` 改为按 `trade_date` 截面加载日线/资金流，pass1/pass2 已并行化
+4. **[已完成/待优化] 在线学习 `--online-update`** ✅
    - `walkforward.py` 已支持 regime 条件滚动权重
-   - 首版验证：同参数下在线学习方向准确率 51.5%（+2.1pp），但累计超额 -6.13% 劣于静态 -4.44%
+   - 首版验证：同参数下在线学习方向准确率 51.5%（+2.1pp），但累计超额 -6.13% 劣于静态 -4.44%；周度在线也劣于静态
    - 当前默认不启用，待优化更新规则后再开启
-4. **[待扩展工具] pass1 权重 / regime 条件优化**
+5. **[已完成/可扩展] 周度再平衡**
+   - `walkforward.py --freq weekly` 已支持
+   - 静态周度平均超额 +0.60% 明显优于月度 +0.02%
+6. **[待扩展工具] pass1 权重 / regime 条件优化**
    - `multi_objective_optimizer.py` 当前只优化 pass2，需扩展 pass1 或分 regime
    - 改变候选池比改变 top-n 排序更有可能提升准确率
-5. **[未实现] 接入披露日期预告 `disclosure_date`**
+7. **[未实现] 接入披露日期预告 `disclosure_date`**
    - 基于财报披露时间做事件前置布局
-6. **[未实现] 分行业命中率反馈**
+8. **[未实现] 分行业命中率反馈**
    - 新增 `scripts/sector_tracker.py`
    - 识别模型在哪些行业有效/失效，指导行业配置
-7. **[未实现] 资金流动量因子优化**
+9. **[未实现] 资金流动量因子优化**
    - 用 `net_mf_ratio` 替代绝对金额，捕捉 5日/20日背离
-8. **[未实现] 熊市/急跌防御机制**
+10. **[未实现] 熊市/急跌防御机制**
    - 动态仓位、空仓选项、趋势过滤、regime 条件权重
-9. **[未实现/后置] 自动化调度 / 交易成本 / DPO / 新数据源**（accuracy 稳定后再做）
+11. **[未实现/后置] 自动化调度 / 交易成本 / DPO / 新数据源**（accuracy 稳定后再做）
 
 ---
 
@@ -331,6 +339,7 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 ### Phase 6：Feedback Harness 在线进化
 
 - [x] 实现 `walkforward.py --online-update` 在线学习（walk-forward 中按 regime 滚动更新权重）
+- [x] 验证周度再平衡：静态周度平均超额 +0.60% 优于月度 +0.02%；但在线学习周度 +0.01% 劣于静态
 - [ ] 实现 `feedback_harness.py --auto` 在线 harness（自动发现新增回测结果并增量更新）
 - [ ] 引入分行业命中率反馈（`scripts/sector_tracker.py`）
 - [ ] 引入事件因子 IC 反馈（`forecast`/`express` 等）

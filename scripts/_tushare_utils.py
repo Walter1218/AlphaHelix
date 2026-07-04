@@ -6,6 +6,8 @@ import os
 import time
 import json
 import hashlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -19,6 +21,16 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # 限流：每秒最多 1 次调用（免费用户保守设置）
 RATE_LIMIT_INTERVAL = float(os.environ.get("ALPHAHELIX_RATE_LIMIT", "1.0"))
 _last_call_time = 0.0
+_rate_limit_lock = threading.Lock()
+
+# 并发控制
+MAX_WORKERS = int(os.environ.get("ALPHAHELIX_MAX_WORKERS", "4"))
+
+# 受窗口隔离约束的数据接口（价格、估值、财务、资金、事件）
+_DATA_APIS = {
+    "daily", "daily_basic", "moneyflow", "fina_indicator", "forecast", "express",
+    "index_daily", "index_weight", "index_classify",
+}
 
 # 延迟初始化的 Tushare pro_api 实例
 _pro = None
@@ -38,11 +50,79 @@ def _get_pro():
 
 def _rate_limit():
     global _last_call_time
-    now = time.time()
-    elapsed = now - _last_call_time
-    if elapsed < RATE_LIMIT_INTERVAL:
-        time.sleep(RATE_LIMIT_INTERVAL - elapsed)
-    _last_call_time = time.time()
+    with _rate_limit_lock:
+        now = time.time()
+        elapsed = now - _last_call_time
+        if elapsed < RATE_LIMIT_INTERVAL:
+            time.sleep(RATE_LIMIT_INTERVAL - elapsed)
+        _last_call_time = time.time()
+
+
+def _parse_date(d) -> str:
+    """统一把 YYYYMMDD 或 Timestamp 转成字符串。"""
+    if d is None:
+        return None
+    if isinstance(d, str):
+        return d
+    if isinstance(d, (int, float)):
+        return str(int(d))
+    if hasattr(d, "strftime"):
+        return d.strftime("%Y%m%d")
+    return str(d)
+
+
+def _enforce_data_window(api_name: str, params: dict):
+    """若设置了数据窗口，禁止数据接口请求窗口外的日期。"""
+    if api_name not in _DATA_APIS:
+        return
+    start = os.environ.get("ALPHAHELIX_DATA_WINDOW_START")
+    end = os.environ.get("ALPHAHELIX_DATA_WINDOW_END")
+    if not start or not end:
+        return
+
+    def _check(field: str):
+        val = _parse_date(params.get(field))
+        if val is None:
+            return
+        if val < start or val > end:
+            raise RuntimeError(
+                f"Data context isolation: {api_name}.{field}={val} is outside "
+                f"allowed window [{start}, {end}]."
+            )
+
+    # trade_date 必须落在窗口内；start_date/end_date 必须完全在窗口内
+    _check("trade_date")
+    req_start = _parse_date(params.get("start_date"))
+    req_end = _parse_date(params.get("end_date"))
+    if req_start and req_start < start:
+        raise RuntimeError(
+            f"Data context isolation: {api_name}.start_date={req_start} is before "
+            f"allowed window start {start}."
+        )
+    if req_end and req_end > end:
+        raise RuntimeError(
+            f"Data context isolation: {api_name}.end_date={req_end} is after "
+            f"allowed window end {end}."
+        )
+
+
+def concurrent_map(func, items, max_workers: int = None):
+    """并发执行 func(item)，保留顺序返回结果。"""
+    if max_workers is None:
+        max_workers = MAX_WORKERS
+    if max_workers <= 1 or len(items) <= 1:
+        return [func(x) for x in items]
+
+    results = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(func, item): i for i, item in enumerate(items)}
+        for future in as_completed(futures):
+            i = futures[future]
+            try:
+                results[i] = future.result()
+            except Exception as e:
+                results[i] = e
+    return results
 
 
 def _cache_key(api_name: str, params: dict) -> str:
@@ -55,7 +135,8 @@ def _cache_path(api_name: str, params: dict) -> Path:
 
 
 def tushare_call(api_name: str, params: dict, use_cache: bool = True) -> pd.DataFrame:
-    """带缓存和限流的 Tushare 调用，返回 DataFrame"""
+    """带缓存、限流和数据上下文隔离的 Tushare 调用，返回 DataFrame"""
+    _enforce_data_window(api_name, params)
     cache_path = _cache_path(api_name, params)
     if use_cache and cache_path.exists():
         with open(cache_path, "r", encoding="utf-8") as f:
