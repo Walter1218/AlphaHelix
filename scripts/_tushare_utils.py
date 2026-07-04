@@ -30,6 +30,7 @@ MAX_WORKERS = int(os.environ.get("ALPHAHELIX_MAX_WORKERS", "4"))
 _DATA_APIS = {
     "daily", "daily_basic", "moneyflow", "fina_indicator", "forecast", "express",
     "index_daily", "index_weight", "index_classify",
+    "margin", "moneyflow_hsgt", "top_list", "disclosure_date",
 }
 
 # 延迟初始化的 Tushare pro_api 实例
@@ -223,3 +224,62 @@ def get_trade_date_after(date: str, days: int = 0, exchange: str = "SSE") -> str
     if len(cal) <= days:
         return cal.iloc[-1]["cal_date"] if not cal.empty else date
     return cal.iloc[days]["cal_date"]
+
+
+# -----------------------------------------------------------------------------
+# Phase 2 另类数据获取（融资融券、北向资金、龙虎榜、披露日）
+# -----------------------------------------------------------------------------
+
+_margin_cache: dict = {}
+_northbound_cache: dict = {}
+_top_list_cache: dict = {}
+_disclosure_cache: dict = {}
+
+
+def fetch_margin_daily(trade_date: str, use_cache: bool = True) -> pd.DataFrame:
+    """获取全市场融资融券余额（交易所维度），返回按交易所汇总。"""
+    key = trade_date
+    if key not in _margin_cache:
+        df = tushare_call("margin", {"trade_date": trade_date}, use_cache=use_cache)
+        _margin_cache[key] = df
+    return _margin_cache[key]
+
+
+def fetch_northbound_daily(trade_date: str, use_cache: bool = True) -> pd.DataFrame:
+    """获取北向资金（沪深港通）每日净流入。"""
+    key = trade_date
+    if key not in _northbound_cache:
+        df = tushare_call("moneyflow_hsgt", {"trade_date": trade_date}, use_cache=use_cache)
+        _northbound_cache[key] = df
+    return _northbound_cache[key]
+
+
+def fetch_top_list(trade_date: str, use_cache: bool = True) -> pd.DataFrame:
+    """获取龙虎榜数据（全市场），返回 DataFrame。"""
+    key = trade_date
+    if key not in _top_list_cache:
+        df = tushare_call("top_list", {"trade_date": trade_date}, use_cache=use_cache)
+        _top_list_cache[key] = df
+    return _top_list_cache[key]
+
+
+def fetch_disclosure_schedule(years: list = None, use_cache: bool = True) -> pd.DataFrame:
+    """获取年报/季报预约披露时间表，按 ann_date 过滤。
+
+    返回列：ts_code, ann_date, end_date, pre_date, actual_date。
+    对于 2024/2025 年报告期，分别拉取对应 ann_date 区间并合并。
+    """
+    if years is None:
+        years = [2024, 2025]
+    key = tuple(years)
+    if key not in _disclosure_cache:
+        parts = []
+        for y in years:
+            df = tushare_call("disclosure_date", {
+                "start_date": f"{y}0101",
+                "end_date": f"{y}1231",
+            }, use_cache=use_cache)
+            if not df.empty:
+                parts.append(df)
+        _disclosure_cache[key] = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+    return _disclosure_cache[key]

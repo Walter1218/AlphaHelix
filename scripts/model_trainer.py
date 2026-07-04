@@ -38,8 +38,11 @@ MODEL_DIR = Path("memory/models")
 PRED_DIR = Path("memory/predictions")
 
 
-def load_dataset(horizon: int):
-    path = DATASET_DIR / f"features_h{horizon}.parquet"
+def load_dataset(horizon: int, dataset_path: str = None):
+    if dataset_path:
+        path = Path(dataset_path)
+    else:
+        path = DATASET_DIR / f"features_h{horizon}.parquet"
     if not path.exists():
         raise FileNotFoundError(f"Dataset not found: {path}. Run build_dataset.py first.")
     df = pd.read_parquet(path)
@@ -230,9 +233,10 @@ def main():
     parser.add_argument("--train-end", default="20241231", help="For split mode")
     parser.add_argument("--train-window-months", type=int, default=12)
     parser.add_argument("--target", choices=["excess_return", "stock_return"], default="excess_return")
+    parser.add_argument("--dataset", default=None, help="Path to parquet dataset (default: memory/dataset/features_h{horizon}.parquet)")
     args = parser.parse_args()
 
-    df = load_dataset(args.horizon)
+    df = load_dataset(args.horizon, args.dataset)
     feature_cols = get_feature_cols(df)
     print(f"[model_trainer] Dataset: {len(df)} rows, features: {feature_cols}")
 

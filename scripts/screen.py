@@ -15,7 +15,10 @@ import pandas as pd
 
 # 把 scripts 目录加入路径以导入本地模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _tushare_utils import tushare_call, get_trade_date_before, is_st_historical, concurrent_map
+from _tushare_utils import (
+    tushare_call, get_trade_date_before, is_st_historical, concurrent_map,
+    fetch_margin_daily, fetch_northbound_daily, fetch_top_list, fetch_disclosure_schedule,
+)
 from market_regime import classify_regime, regime_to_strategy
 from _trace import trace_event
 from online_predictor import RegimeModelManager, features_from_record, DEFAULT_FEATURE_NAMES
@@ -612,6 +615,105 @@ def _pass2_row(row: dict, date: str, df_mf_window: pd.DataFrame) -> dict:
         return None
 
 
+def add_phase2_features(df: pd.DataFrame, date: str) -> pd.DataFrame:
+    """补充 Phase 2 另类数据特征：融资融券、北向资金、龙虎榜、披露日。
+
+    规则：
+    - margin / northbound / top_list 用 T-1 收盘后公开数据；
+    - disclosure_date 用已公开的预约披露时间表（pre_date）计算距下次披露日天数。
+    """
+    if df.empty:
+        return df
+    df = df.copy()
+
+    # T-1 数据日期
+    lag_date = get_trade_date_before(date, days=1)
+
+    # 1) 融资融券（市场层面）
+    try:
+        margin_df = fetch_margin_daily(lag_date)
+        if not margin_df.empty:
+            margin_df["rzrqye"] = pd.to_numeric(margin_df.get("rzrqye"), errors="coerce")
+            margin_df["rzye"] = pd.to_numeric(margin_df.get("rzye"), errors="coerce")
+            margin_df["rqye"] = pd.to_numeric(margin_df.get("rqye"), errors="coerce")
+            total_balance = margin_df["rzrqye"].sum()
+            total_financing = margin_df["rzye"].sum()
+            total_short = margin_df["rqye"].sum()
+            df["margin_total_balance"] = total_balance
+            df["margin_financing_ratio"] = total_financing / (total_short + 1e-9)
+    except Exception:
+        df["margin_total_balance"] = np.nan
+        df["margin_financing_ratio"] = np.nan
+
+    # 2) 北向资金（市场层面）
+    try:
+        nb_df = fetch_northbound_daily(lag_date)
+        if not nb_df.empty:
+            north = pd.to_numeric(nb_df.get("north_money"), errors="coerce").sum()
+            # 近 5 日累计
+            nb_5d = 0.0
+            cnt = 0
+            for d in pd.date_range(end=pd.to_datetime(lag_date), periods=5, freq="B"):
+                dstr = d.strftime("%Y%m%d")
+                try:
+                    tmp = fetch_northbound_daily(dstr)
+                    if not tmp.empty:
+                        nb_5d += pd.to_numeric(tmp.get("north_money"), errors="coerce").sum()
+                        cnt += 1
+                except Exception:
+                    continue
+            df["northbound_net"] = north
+            df["northbound_net_5d"] = nb_5d if cnt > 0 else np.nan
+    except Exception:
+        df["northbound_net"] = np.nan
+        df["northbound_net_5d"] = np.nan
+
+    # 3) 龙虎榜（个股层面）
+    try:
+        top_df = fetch_top_list(lag_date)
+        if not top_df.empty:
+            top_df["ts_code"] = top_df["ts_code"].astype(str)
+            for col in ["net_amount", "amount_rate", "turnover_rate", "pct_change"]:
+                if col in top_df.columns:
+                    top_df[col] = pd.to_numeric(top_df[col], errors="coerce")
+            rename = {
+                "net_amount": "top_list_net_amount",
+                "amount_rate": "top_list_amount_rate",
+                "turnover_rate": "top_list_turnover_rate",
+                "pct_change": "top_list_pct_change",
+            }
+            top_df = top_df.rename(columns=rename)
+            top_df["top_list_flag"] = 1
+            keep = ["ts_code", "top_list_flag"] + [c for c in rename.values() if c in top_df.columns]
+            top_df = top_df.drop_duplicates(subset=["ts_code"], keep="first")
+            df = df.merge(top_df[keep], on="ts_code", how="left")
+            df["top_list_flag"] = df["top_list_flag"].fillna(0)
+    except Exception:
+        df["top_list_flag"] = 0
+
+    # 4) 披露日（个股层面）：距下一次预约披露日天数 / 距上一次实际披露日天数
+    try:
+        disc_df = fetch_disclosure_schedule(years=[pd.to_datetime(date).year - 1, pd.to_datetime(date).year])
+        if not disc_df.empty:
+            disc_df["ts_code"] = disc_df["ts_code"].astype(str)
+            disc_df["pre_date"] = pd.to_datetime(disc_df["pre_date"], errors="coerce")
+            disc_df["ann_date"] = pd.to_datetime(disc_df["ann_date"], errors="coerce")
+            today = pd.to_datetime(date)
+            # 下一次预约披露
+            next_disc = disc_df[disc_df["pre_date"] >= today].groupby("ts_code")["pre_date"].min().reset_index()
+            next_disc["days_to_disclosure"] = (next_disc["pre_date"] - today).dt.days
+            # 上一次实际披露
+            last_disc = disc_df[disc_df["ann_date"] <= today].groupby("ts_code")["ann_date"].max().reset_index()
+            last_disc["days_since_disclosure"] = (today - last_disc["ann_date"]).dt.days
+            df = df.merge(next_disc[["ts_code", "days_to_disclosure"]], on="ts_code", how="left")
+            df = df.merge(last_disc[["ts_code", "days_since_disclosure"]], on="ts_code", how="left")
+    except Exception:
+        df["days_to_disclosure"] = np.nan
+        df["days_since_disclosure"] = np.nan
+
+    return df
+
+
 def pass2_enrich(df_pass1: pd.DataFrame, date: str, config: dict) -> pd.DataFrame:
     """第二轮：对 top 候选补充财务 + 资金因子，重新打分。"""
     if df_pass1.empty:
@@ -637,6 +739,9 @@ def pass2_enrich(df_pass1: pd.DataFrame, date: str, config: dict) -> pd.DataFram
                 "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps"]:
         if col not in df.columns:
             df[col] = np.nan
+
+    # 附加 Phase 2 另类数据特征
+    df = add_phase2_features(df, date)
 
     df = apply_filters(df, config.get("filters", {}))
     if df.empty:

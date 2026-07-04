@@ -118,6 +118,11 @@ def build_numeric_features(df: pd.DataFrame,
             "sector_momentum", "relative_to_sector", "sector_breadth",
             "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe",
             "reversal_score", "amount_ratio_5d", "volatility_20", "liquidity", "total_mv",
+            # Phase 2
+            "margin_total_balance", "margin_financing_ratio",
+            "northbound_net", "northbound_net_5d",
+            "top_list_flag", "top_list_net_amount", "top_list_amount_rate", "top_list_turnover_rate", "top_list_pct_change",
+            "days_to_disclosure", "days_since_disclosure",
         ]
     # 只保留存在的列
     feature_cols = [c for c in feature_cols if c in df.columns]

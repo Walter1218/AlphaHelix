@@ -88,6 +88,11 @@ def build_dataset(start_date: str, end_date: str, horizon: int,
                 "sector_momentum", "relative_to_sector", "sector_breadth",
                 "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe",
                 "reversal_score", "amount_ratio_5d", "volatility_20", "liquidity", "total_mv",
+                # Phase 2
+                "margin_total_balance", "margin_financing_ratio",
+                "northbound_net", "northbound_net_5d",
+                "top_list_flag", "top_list_net_amount", "top_list_amount_rate", "top_list_turnover_rate", "top_list_pct_change",
+                "days_to_disclosure", "days_since_disclosure",
             ]]
 
             t_exit = get_trade_date_after(t, days=horizon)
