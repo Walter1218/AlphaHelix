@@ -82,11 +82,12 @@ def _pick_from_candidate(c: dict, rank: int, factor_fields: list) -> dict:
 def build_snapshot(trade_date: str, candidates: list, horizon: int) -> dict:
     """根据 screen.py 输出构建 evaluate.py 可读取的 snapshot。保留因子值供 IC 计算。"""
     factor_fields = [
-        "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
+        "mom_5", "mom_20", "mom_60", "mom_120", "pe", "pb", "ps", "dv_ratio",
         "roe", "revenue_growth", "profit_growth", "ocf_growth",
-        "net_mf_5d", "net_mf_20d", "net_mf_ratio",
+        "net_mf_5d", "net_mf_20d", "net_mf_ratio", "net_mf_divergence",
         "avg_amount_20", "amount_ratio_5d", "volatility_20", "total_mv",
-        "reversal_score", "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+        "reversal_score", "risk_adj_mom", "relative_strength",
+        "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio", "sector_breadth",
         "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps",
     ]
     picks = [_pick_from_candidate(c, i, factor_fields) for i, c in enumerate(candidates, 1)]
@@ -102,11 +103,12 @@ def build_snapshot(trade_date: str, candidates: list, horizon: int) -> dict:
 def build_full_snapshot(trade_date: str, df_pass2: pd.DataFrame, horizon: int) -> dict:
     """构建包含 pass2 全部候选（约 80 只）的完整 snapshot，供离线权重优化使用。"""
     factor_fields = [
-        "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
+        "mom_5", "mom_20", "mom_60", "mom_120", "pe", "pb", "ps", "dv_ratio",
         "roe", "revenue_growth", "profit_growth", "ocf_growth",
-        "net_mf_5d", "net_mf_20d", "net_mf_ratio",
+        "net_mf_5d", "net_mf_20d", "net_mf_ratio", "net_mf_divergence",
         "avg_amount_20", "amount_ratio_5d", "volatility_20", "total_mv",
-        "reversal_score", "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+        "reversal_score", "risk_adj_mom", "relative_strength",
+        "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio", "sector_breadth",
         "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps",
     ]
     picks = []
@@ -311,6 +313,7 @@ def main():
     parser.add_argument("--online-lr", type=float, default=0.5, help="Learning rate for online weight update")
     parser.add_argument("--min-score", type=float, default=None, help="Minimum top-score threshold; below this the period is treated as cash")
     parser.add_argument("--pass2-weights", type=str, default=None, help="Path to JSON file with pass2 weights to override")
+    parser.add_argument("--regime-weights-dir", type=str, default=None, help="Directory with per-regime pass2 weight files named {strategy}_{regime}.json")
     parser.add_argument("--ic-calibrate", action="store_true", help="Walk-forward out-of-sample IC calibration: use prior periods to set pass2 weights")
     parser.add_argument("--ic-min-ic", type=float, default=0.0, help="Minimum IC threshold for ic-calibrate")
     args = parser.parse_args()
@@ -345,6 +348,27 @@ def main():
                 f"[walkforward] WARNING: {args.pass2_weights} does not have walk_forward=true metadata. "
                 f"Ensure these weights were generated strictly from data before the backtest period."
             )
+
+    # 预加载 regime 权重目录
+    regime_weights_dir = None
+    if args.regime_weights_dir:
+        regime_weights_dir = {}
+        for path in Path(args.regime_weights_dir).glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("diagnostic_only"):
+                    continue
+                if isinstance(data.get("weights"), dict) and "pass2" in data["weights"]:
+                    w = data["weights"]["pass2"]
+                elif "pass2" in data:
+                    w = data["pass2"]
+                else:
+                    continue
+                key = path.stem  # e.g., "regime_range" or "event_driven_range"
+                regime_weights_dir[key] = w
+            except Exception:
+                continue
+        print(f"[walkforward] Loaded {len(regime_weights_dir)} regime weight files from {args.regime_weights_dir}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -406,16 +430,28 @@ def main():
             pass1_weights = current_weights[wkey].get("pass1")
             pass2_weights = current_weights[wkey].get("pass2")
 
-        # IC walk-forward 校准：用之前所有期生成 pass2 权重
+        # IC walk-forward 校准：用之前所有期生成 pass2 权重（按 regime 分别校准）
+        ic_regime_weights = None
         if args.ic_calibrate and idx > 1:
             prior_dates = trade_dates[:idx-1]
-            ic_pass2 = compute_pass2_weights_for_dates(prior_dates, min_ic=args.ic_min_ic)
-            if ic_pass2:
-                pass2_weights = ic_pass2
+            ic_regime_weights = compute_pass2_weights_for_dates(prior_dates, min_ic=args.ic_min_ic, horizon=args.horizon, per_regime=True)
 
         try:
-            # 显式 pass2 权重覆盖优先级最高
-            effective_pass2 = pass2_weights_override if pass2_weights_override is not None else pass2_weights
+            # 选择 pass2 权重：显式覆盖 > 在线学习当前 regime 权重 > IC 校准 regime 权重 > regime 权重目录
+            effective_pass2 = pass2_weights_override
+            if effective_pass2 is None:
+                if pass2_weights is not None:
+                    effective_pass2 = pass2_weights
+                elif ic_regime_weights and regime in ic_regime_weights:
+                    effective_pass2 = ic_regime_weights[regime]
+                elif regime_weights_dir:
+                    # 优先匹配 actual_strategy_regime，其次 regime_xxx，最后 regime
+                    keys = [f"{strategy_key}_{regime}", f"regime_{regime}", regime]
+                    for k in keys:
+                        if k in regime_weights_dir:
+                            effective_pass2 = regime_weights_dir[k]
+                            break
+
             res = run_single_period(
                 td, args.strategy, args.horizon, args.top_n,
                 resume=allow_resume,

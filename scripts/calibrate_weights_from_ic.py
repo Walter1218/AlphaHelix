@@ -96,34 +96,45 @@ def build_weights(ic_mean: dict, min_ic: float = 0.0) -> dict:
     return {f: round(w / total, 4) for f, w in positive.items()}
 
 
-def compute_pass2_weights_for_dates(dates: list, min_ic: float = 0.0) -> dict:
-    """根据给定日期列表的历史选股与收益，生成 pass2 权重。"""
+def _load_period(date: str, horizon: int = 10):
+    """加载单期的选股与收益记录。"""
+    eval_path = Path("memory/eval") / f"{date}_regime_h{horizon}.json"
+    if not eval_path.exists():
+        matches = list(Path("memory/eval").glob(f"{date}_*_h{horizon}.json"))
+        if not matches:
+            return None, None
+        eval_path = matches[0]
+    try:
+        ev = json.loads(eval_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None, None
+    if "error" in ev or ev.get("cash"):
+        return None, None
+    snap_path = SNAPSHOT_DIR / f"{date}.json"
+    if not snap_path.exists():
+        return None, None
+    snap = json.loads(snap_path.read_text(encoding="utf-8"))
+    return ev, snap
+
+
+def compute_pass2_weights_for_dates(dates: list, min_ic: float = 0.0, horizon: int = 10, per_regime: bool = False):
+    """
+    根据给定日期列表的历史选股与收益，生成 pass2 权重。
+    若 per_regime=True，返回 {regime: weights}；否则返回单个 weights dict。
+    """
     records = []
     for date in dates:
-        eval_path = Path("memory/eval") / f"{date}_regime_h10.json"
-        if not eval_path.exists():
-            # 兼容非 regime 文件名
-            matches = list(Path("memory/eval").glob(f"{date}_*_h10.json"))
-            if not matches:
-                continue
-            eval_path = matches[0]
-        try:
-            ev = json.loads(eval_path.read_text(encoding="utf-8"))
-        except Exception:
+        ev, snap = _load_period(date, horizon)
+        if ev is None:
             continue
-        if "error" in ev or ev.get("cash"):
-            continue
-        snap_path = SNAPSHOT_DIR / f"{date}.json"
-        if not snap_path.exists():
-            continue
-        snap = json.loads(snap_path.read_text(encoding="utf-8"))
+        regime = ev.get("regime")
         picks = snap.get("picks", [])
         ret_map = {det["ts_code"]: det["abs_return"] for det in ev.get("details", []) if "error" not in det}
         for p in picks:
             ts = p["ts_code"]
             if ts not in ret_map:
                 continue
-            rec = {"date": date, "ts_code": ts, "rank": p.get("rank"), "return": ret_map[ts]}
+            rec = {"date": date, "ts_code": ts, "rank": p.get("rank"), "return": ret_map[ts], "regime": regime}
             for k, v in p.items():
                 if k in ("ts_code", "name", "rationale", "confidence", "stop_loss", "rank", "score"):
                     continue
@@ -135,9 +146,22 @@ def compute_pass2_weights_for_dates(dates: list, min_ic: float = 0.0) -> dict:
 
     df = pd.DataFrame(records)
     if df.empty:
-        return {}
-    ic_mean = compute_ic(df)
-    return build_weights(ic_mean, min_ic=min_ic)
+        return {} if not per_regime else {}
+
+    if not per_regime:
+        ic_mean = compute_ic(df)
+        return build_weights(ic_mean, min_ic=min_ic)
+
+    # per regime
+    result = {}
+    for regime, g in df.groupby("regime"):
+        if len(g) < 10:
+            continue
+        ic_mean = compute_ic(g)
+        w = build_weights(ic_mean, min_ic=min_ic)
+        if w:
+            result[regime] = w
+    return result
 
 
 def main():
@@ -145,6 +169,8 @@ def main():
     parser.add_argument("--strategy", default=None, help="Filter by strategy; if None, pool all strategies")
     parser.add_argument("--min-ic", type=float, default=0.0, help="Ignore factors with IC below this threshold")
     parser.add_argument("--output", default=None, help="Output weights file name; default {strategy}_ic.json")
+    parser.add_argument("--per-regime", action="store_true", help="Generate separate weights per market regime")
+    parser.add_argument("--horizon", type=int, default=10, help="Holding horizon used in eval filenames")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -163,6 +189,50 @@ def main():
     print(f"Loaded {len(df)} picks across {df['date'].nunique()} dates")
     if args.strategy:
         print(f"Strategy filter: {args.strategy}")
+
+    if args.per_regime:
+        regime_weights = {}
+        for regime, g in df.groupby("regime"):
+            if len(g) < 10:
+                continue
+            ic_mean = compute_ic(g)
+            new_weights = build_weights(ic_mean, min_ic=args.min_ic)
+            regime_weights[regime] = {"ic_mean": ic_mean, "weights": new_weights}
+            print(f"\nRegime: {regime} ({len(g)} picks)")
+            print("Factor mean rank IC:")
+            for f, ic in sorted(ic_mean.items(), key=lambda kv: kv[1], reverse=True):
+                print(f"  {f:30s} {ic:+.4f}")
+            print("New weights:")
+            for f, w in sorted(new_weights.items(), key=lambda kv: kv[1], reverse=True):
+                print(f"  {f:30s} {w:.4f}")
+
+        WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+        strategy_key = args.strategy or "regime"
+        base = DEFAULT_BASE_WEIGHTS.get(strategy_key, DEFAULT_BASE_WEIGHTS.get("momentum_value_hybrid", {}))
+        for regime, data in regime_weights.items():
+            out_name = args.output or f"{strategy_key}_{regime}_ic.json"
+            # 如果 output 指定了单一名称，则添加 regime 后缀
+            if args.output and len(regime_weights) > 1:
+                out_name = out_name.replace(".json", f"_{regime}.json")
+            out_path = WEIGHTS_DIR / out_name
+            output_weights = {
+                "pass1": dict(base.get("pass1", {})),
+                "pass2": data["weights"],
+            }
+            out_path.write_text(json.dumps({
+                "strategy": strategy_key,
+                "regime": regime,
+                "weights": output_weights,
+                "ic_mean": data["ic_mean"],
+                "min_ic": args.min_ic,
+                "based_on_picks": len(df[df["regime"] == regime]),
+                "based_on_dates": df[df["regime"] == regime]["date"].nunique(),
+                "diagnostic_only": True,
+                "warning": "In-sample weights. Do not backtest the same dates. Use only in walk-forward mode.",
+            }, ensure_ascii=False, indent=2))
+            print(f"\nSaved to {out_path}")
+        print("WARNING: outputs marked as diagnostic_only=True.")
+        return
 
     ic_mean = compute_ic(df)
     print("\nFactor mean rank IC:")

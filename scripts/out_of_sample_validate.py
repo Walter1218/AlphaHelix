@@ -34,7 +34,7 @@ WEIGHTS_DIR = Path("memory/weights")
 
 def run_walkforward(start: str, end: str, strategy: str, horizon: int, top_n: int,
                     universe_size: int, skip_st_check: bool, pass2_weights: Path = None,
-                    extra_label: str = "") -> Path:
+                    regime_weights_dir: Path = None, extra_label: str = "") -> Path:
     """调用 walkforward.py，返回汇总文件路径。"""
     cmd = [
         "python", "scripts/walkforward.py",
@@ -50,6 +50,8 @@ def run_walkforward(start: str, end: str, strategy: str, horizon: int, top_n: in
         cmd.append("--skip-st-check")
     if pass2_weights:
         cmd.extend(["--pass2-weights", str(pass2_weights)])
+    if regime_weights_dir:
+        cmd.extend(["--regime-weights-dir", str(regime_weights_dir)])
 
     label = f"{extra_label}_{start}_{end}_{strategy}_h{horizon}" if extra_label else f"{start}_{end}_{strategy}_h{horizon}"
     log_path = Path("memory/log") / f"oos_{label}.log"
@@ -59,7 +61,8 @@ def run_walkforward(start: str, end: str, strategy: str, horizon: int, top_n: in
     env["ALPHAHELIX_MAX_WORKERS"] = env.get("ALPHAHELIX_MAX_WORKERS", "4")
     env["ALPHAHELIX_RATE_LIMIT"] = env.get("ALPHAHELIX_RATE_LIMIT", "0.02")
 
-    print(f"[oos] Running walkforward {start}~{end} {'(with train weights)' if pass2_weights else '(baseline)'} ...")
+    label = "with train weights" if (pass2_weights or regime_weights_dir) else "baseline"
+    print(f"[oos] Running walkforward {start}~{end} ({label}) ...")
     with open(log_path, "w", encoding="utf-8") as f:
         subprocess.run(cmd, check=True, env=env, stdout=f, stderr=subprocess.STDOUT)
 
@@ -94,6 +97,7 @@ def main():
     parser.add_argument("--universe-size", type=int, default=200, help="Universe size")
     parser.add_argument("--skip-st-check", action="store_true", help="Skip historical ST check")
     parser.add_argument("--min-ic", type=float, default=0.0, help="Min IC threshold for weight calibration")
+    parser.add_argument("--per-regime", action="store_true", help="Train separate weights per market regime")
     args = parser.parse_args()
 
     if args.test_start <= args.train_end:
@@ -108,30 +112,53 @@ def main():
     # 2. 用训练期数据生成 pass2 权重
     train_dates = get_trade_dates(args.train_start, args.train_end)
     print(f"[oos] Calibrating pass2 weights from {len(train_dates)} train periods ...")
-    pass2_weights = compute_pass2_weights_for_dates(train_dates, min_ic=args.min_ic)
-    if not pass2_weights:
-        raise RuntimeError("No pass2 weights generated from training period")
 
-    weights_file = WEIGHTS_DIR / f"oos_train_{args.train_start}_{args.train_end}_pass2.json"
-    weights_file.parent.mkdir(parents=True, exist_ok=True)
-    weights_file.write_text(json.dumps({
-        "walk_forward": True,
-        "train_start": args.train_start,
-        "train_end": args.train_end,
-        "generated_at": datetime.now().strftime("%Y%m%d_%H%M%S"),
-        "weights": {"pass2": pass2_weights},
-        "pass2": pass2_weights,
-    }, ensure_ascii=False, indent=2))
-    print(f"[oos] Train weights saved to {weights_file}")
-    print("Train pass2 weights:")
-    for f, w in sorted(pass2_weights.items(), key=lambda kv: -kv[1]):
-        print(f"  {f}: {w:.4f}")
+    weights_dir = WEIGHTS_DIR / f"oos_train_{args.train_start}_{args.train_end}"
+    weights_dir.mkdir(parents=True, exist_ok=True)
 
-    # 3. 测试期 walk-forward（用训练期权重）
-    test_summary_with_weights = run_walkforward(
-        args.test_start, args.test_end, args.strategy, args.horizon, args.top_n,
-        args.universe_size, args.skip_st_check, pass2_weights=weights_file, extra_label="test_weighted"
-    )
+    if args.per_regime:
+        regime_weights = compute_pass2_weights_for_dates(train_dates, min_ic=args.min_ic, horizon=args.horizon, per_regime=True)
+        if not regime_weights:
+            raise RuntimeError("No per-regime weights generated from training period")
+        for regime, w in regime_weights.items():
+            wfile = weights_dir / f"regime_{regime}.json"
+            wfile.write_text(json.dumps({
+                "walk_forward": True,
+                "train_start": args.train_start,
+                "train_end": args.train_end,
+                "regime": regime,
+                "generated_at": datetime.now().strftime("%Y%m%d_%H%M%S"),
+                "weights": {"pass2": w},
+                "pass2": w,
+            }, ensure_ascii=False, indent=2))
+            print(f"[oos] Regime {regime} weights saved to {wfile}")
+            print(f"  weights: {w}")
+        test_summary_with_weights = run_walkforward(
+            args.test_start, args.test_end, args.strategy, args.horizon, args.top_n,
+            args.universe_size, args.skip_st_check, pass2_weights=None,
+            regime_weights_dir=weights_dir, extra_label="test_weighted"
+        )
+    else:
+        pass2_weights = compute_pass2_weights_for_dates(train_dates, min_ic=args.min_ic, horizon=args.horizon)
+        if not pass2_weights:
+            raise RuntimeError("No pass2 weights generated from training period")
+        weights_file = weights_dir / "pass2.json"
+        weights_file.write_text(json.dumps({
+            "walk_forward": True,
+            "train_start": args.train_start,
+            "train_end": args.train_end,
+            "generated_at": datetime.now().strftime("%Y%m%d_%H%M%S"),
+            "weights": {"pass2": pass2_weights},
+            "pass2": pass2_weights,
+        }, ensure_ascii=False, indent=2))
+        print(f"[oos] Train weights saved to {weights_file}")
+        print("Train pass2 weights:")
+        for f, w in sorted(pass2_weights.items(), key=lambda kv: -kv[1]):
+            print(f"  {f}: {w:.4f}")
+        test_summary_with_weights = run_walkforward(
+            args.test_start, args.test_end, args.strategy, args.horizon, args.top_n,
+            args.universe_size, args.skip_st_check, pass2_weights=weights_file, extra_label="test_weighted"
+        )
     # 复制一份加权结果，避免 baseline 运行后被覆盖
     test_summary_with_weights_copy = Path("memory/eval") / f"walkforward_{args.test_start}_{args.test_end}_{args.strategy}_h{args.horizon}_monthly_weighted.json"
     shutil.copy(test_summary_with_weights, test_summary_with_weights_copy)
@@ -164,8 +191,8 @@ def main():
         "train_summary": train,
         "test_weighted_summary": test_w,
         "test_baseline_summary": test_b,
-        "weights_file": str(weights_file),
-        "pass2_weights": pass2_weights,
+        "weights_dir": str(weights_dir),
+        "per_regime": args.per_regime,
     }
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2))
     print(f"\nReport saved to {report_path}")

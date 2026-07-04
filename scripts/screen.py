@@ -75,6 +75,26 @@ def load_daily_window(end_date: str, days: int) -> pd.DataFrame:
     return pd.concat(valid, ignore_index=True)
 
 
+_index_mom20_cache: dict = {}
+
+
+def get_index_mom20(end_date: str, days: int = 20) -> float:
+    """获取沪深300 在 end_date 前 days 日的动量，用于相对强度计算。"""
+    key = (end_date, days)
+    if key not in _index_mom20_cache:
+        start_date = get_trade_date_before(end_date, days=days)
+        df = tushare_call("index_daily", {"ts_code": "000300.SH", "start_date": start_date, "end_date": end_date})
+        if df.empty or len(df) < 2:
+            _index_mom20_cache[key] = np.nan
+        else:
+            df = df.sort_values("trade_date")
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+            start_close = df["close"].iloc[0]
+            end_close = df["close"].iloc[-1]
+            _index_mom20_cache[key] = (end_close / start_close - 1) if start_close and start_close > 0 else np.nan
+    return _index_mom20_cache[key]
+
+
 def load_moneyflow_window(end_date: str, days: int) -> pd.DataFrame:
     """加载 [end_date-days+1, end_date] 的资金流向窗口并合并。"""
     dates = []
@@ -106,11 +126,12 @@ STRATEGIES = {
         "pass2": {
             "filters": {"min_roe": 0.05},
             "weights": {
-                "mom_20": 0.25, "mom_60": 0.10,
+                "mom_20": 0.20, "mom_60": 0.08,
+                "risk_adj_mom": 0.05, "relative_strength": 0.05,
                 "ep": 0.10, "bp": 0.10, "sp": 0.05,
                 "roe": 0.10, "profit_growth": 0.05, "revenue_growth": 0.05,
-                "net_mf_5d": 0.10, "net_mf_ratio": 0.05,
-                "liquidity": 0.05,
+                "net_mf_5d": 0.08, "net_mf_ratio": 0.04, "net_mf_divergence": 0.04,
+                "liquidity": 0.05, "sector_breadth": 0.06,
             },
         },
     },
@@ -128,10 +149,11 @@ STRATEGIES = {
         "pass2": {
             "filters": {"min_roe": 0.08, "min_profit_growth": 0.10},
             "weights": {
-                "roe": 0.25, "profit_growth": 0.20, "revenue_growth": 0.10, "ocf_growth": 0.10,
-                "ep": 0.10, "bp": 0.05,
-                "net_mf_5d": 0.05, "net_mf_ratio": 0.05,
-                "liquidity": 0.05, "mom_20": 0.05,
+                "roe": 0.20, "profit_growth": 0.15, "revenue_growth": 0.08, "ocf_growth": 0.08,
+                "ep": 0.08, "bp": 0.05,
+                "net_mf_5d": 0.04, "net_mf_ratio": 0.04, "net_mf_divergence": 0.04,
+                "liquidity": 0.04, "mom_20": 0.04,
+                "risk_adj_mom": 0.05, "relative_strength": 0.05, "sector_breadth": 0.06,
             },
         },
     },
@@ -150,12 +172,13 @@ STRATEGIES = {
         "pass2": {
             "filters": {"min_roe": 0.03},
             "weights": {
-                "bp": 0.18, "ep": 0.13, "roe": 0.08, "profit_growth": 0.08,
-                "net_mf_5d": 0.10,
-                "mom_20": -0.10, "mom_60": -0.05,
-                "mom_5": 0.05, "reversal_score": 0.10,
-                "sector_momentum": 0.05, "relative_to_sector": 0.05,
-                "liquidity": 0.05,
+                "bp": 0.15, "ep": 0.10, "roe": 0.07, "profit_growth": 0.07,
+                "net_mf_5d": 0.08, "net_mf_ratio": 0.04, "net_mf_divergence": 0.04,
+                "mom_20": -0.08, "mom_60": -0.04,
+                "mom_5": 0.04, "reversal_score": 0.08,
+                "sector_momentum": 0.04, "relative_to_sector": 0.04,
+                "liquidity": 0.04,
+                "risk_adj_mom": 0.04, "relative_strength": 0.04, "sector_breadth": 0.05,
             },
         },
     },
@@ -174,18 +197,20 @@ STRATEGIES = {
         "pass2": {
             "filters": {},
             "weights": {
-                "forecast_type_score": 0.28,
-                "forecast_pchange_mid": 0.18,
-                "express_diluted_roe": 0.12,
-                "net_mf_5d": 0.10,
-                "net_mf_ratio": 0.10,
-                "mom_20": 0.05,
-                "ep": 0.05,
-                "liquidity": 0.05,
-                "sector_momentum": 0.05,
+                "forecast_type_score": 0.20,
+                "forecast_pchange_mid": 0.12,
+                "express_diluted_roe": 0.08,
+                "net_mf_5d": 0.08,
+                "net_mf_ratio": 0.06,
+                "net_mf_divergence": 0.06,
+                "mom_20": 0.04,
+                "ep": 0.04,
+                "liquidity": 0.04,
+                "sector_momentum": 0.04,
+                "risk_adj_mom": 0.04, "relative_strength": 0.04, "sector_breadth": 0.05,
             },
         },
-    },
+    }
 }
 
 
@@ -215,6 +240,7 @@ def compute_price_factors(df_daily: pd.DataFrame) -> dict:
     mom_5 = (close.iloc[-1] / close.iloc[-5]) - 1
     mom_20 = (close.iloc[-1] / close.iloc[-20]) - 1
     mom_60 = (close.iloc[-1] / close.iloc[-60]) - 1
+    mom_120 = (close.iloc[-1] / close.iloc[-120]) - 1 if len(close) >= 120 else np.nan
     volatility_20 = returns.tail(20).std()
     avg_amount_20 = amount.tail(20).mean()
     avg_amount_5 = amount.tail(5).mean()
@@ -222,15 +248,19 @@ def compute_price_factors(df_daily: pd.DataFrame) -> dict:
 
     # 反转打分：短期跌幅越深、近期相对 20 日放量，分数越高
     reversal_score = -(mom_20) * amount_ratio_5d
+    # 风险调整动量：单位波动收益
+    risk_adj_mom = mom_20 / volatility_20 if volatility_20 > 0 else np.nan
 
     return {
         "mom_5": mom_5,
         "mom_20": mom_20,
         "mom_60": mom_60,
+        "mom_120": mom_120,
         "volatility_20": volatility_20,
         "avg_amount_20": avg_amount_20,
         "amount_ratio_5d": amount_ratio_5d,
         "reversal_score": reversal_score,
+        "risk_adj_mom": risk_adj_mom,
     }
 
 
@@ -293,10 +323,13 @@ def compute_fund_factors_from_window(ts_code: str, df_mf_window: pd.DataFrame) -
         net_mf_20d = df["net_mf_amount"].tail(20).sum()
         gross_5d = df["gross_amount"].tail(5).sum()
         net_mf_ratio = net_mf_5d / gross_5d if gross_5d > 0 else 0
+        # 资金流动量：5日净流入 / 20日净流入，捕捉短期资金加速/减速
+        net_mf_divergence = net_mf_5d / net_mf_20d if net_mf_20d != 0 else np.nan
         return {
             "net_mf_5d": net_mf_5d,
             "net_mf_20d": net_mf_20d,
             "net_mf_ratio": net_mf_ratio,
+            "net_mf_divergence": net_mf_divergence,
         }
     except Exception:
         return {}
@@ -471,6 +504,9 @@ def add_sector_factors(df: pd.DataFrame, group_col: str = "industry") -> pd.Data
     if "amount_ratio_5d" in df.columns:
         df["sector_amount_ratio"] = df.groupby(group_col)["amount_ratio_5d"].transform("mean")
 
+    # 行业广度：行业内 mom_20 > 0 的股票占比，衡量行业上涨扩散度
+    df["sector_breadth"] = df.groupby(group_col)["mom_20"].transform(lambda x: (x > 0).mean())
+
     # 行业数量过滤：样本不足 3 只的行业标记为 NaN，避免单一股票误导行业均值
     sector_counts = df[group_col].map(df[group_col].value_counts())
     min_count = 3
@@ -480,6 +516,8 @@ def add_sector_factors(df: pd.DataFrame, group_col: str = "industry") -> pd.Data
         df.loc[sector_counts < min_count, "sector_mom5"] = np.nan
     if "sector_amount_ratio" in df.columns:
         df.loc[sector_counts < min_count, "sector_amount_ratio"] = np.nan
+    if "sector_breadth" in df.columns:
+        df.loc[sector_counts < min_count, "sector_breadth"] = np.nan
 
     return df
 
@@ -501,10 +539,12 @@ def _pass1_row(row: dict, date: str, df_daily_window: pd.DataFrame) -> dict:
             "mom_5": factors["mom_5"],
             "mom_20": factors["mom_20"],
             "mom_60": factors["mom_60"],
+            "mom_120": factors.get("mom_120", np.nan),
             "volatility_20": factors["volatility_20"],
             "avg_amount_20": factors["avg_amount_20"],
             "amount_ratio_5d": factors["amount_ratio_5d"],
             "reversal_score": factors["reversal_score"],
+            "risk_adj_mom": factors.get("risk_adj_mom", np.nan),
             "pe": safe_float(row.get("pe"), np.nan),
             "pb": safe_float(row.get("pb"), np.nan),
             "ps": safe_float(row.get("ps"), np.nan),
@@ -541,6 +581,13 @@ def pass1_screen(df_universe: pd.DataFrame, date: str, config: dict) -> pd.DataF
 
     # 行业相对强度（基于 pass1 截面）
     df = add_sector_factors(df)
+
+    # 相对基准强度：个股 mom_20 / 沪深300 mom_20
+    index_mom20 = get_index_mom20(date, days=20)
+    if pd.notna(index_mom20) and index_mom20 != 0:
+        df["relative_strength"] = df["mom_20"] / index_mom20
+    else:
+        df["relative_strength"] = np.nan
 
     df["pass1_score"] = compute_weighted_score(df, config["weights"])
     return df.sort_values("pass1_score", ascending=False).head(PASS1_TOP_K)
@@ -581,9 +628,11 @@ def pass2_enrich(df_pass1: pd.DataFrame, date: str, config: dict) -> pd.DataFram
     df = pd.DataFrame(records)
 
     for col in ["pe", "pb", "ps", "dv_ratio", "roe", "revenue_growth", "profit_growth", "ocf_growth",
-                "net_mf_5d", "net_mf_20d", "net_mf_ratio", "avg_amount_20", "total_mv",
-                "mom_5", "amount_ratio_5d", "reversal_score",
-                "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+                "net_mf_5d", "net_mf_20d", "net_mf_ratio", "net_mf_divergence",
+                "avg_amount_20", "total_mv",
+                "mom_5", "mom_60", "mom_120", "amount_ratio_5d", "reversal_score",
+                "risk_adj_mom", "relative_strength",
+                "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio", "sector_breadth",
                 "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps"]:
         if col not in df.columns:
             df[col] = np.nan

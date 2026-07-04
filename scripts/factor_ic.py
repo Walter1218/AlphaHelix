@@ -17,11 +17,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = Path("memory/factor_ic")
 
 FACTOR_FIELDS = [
-    "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
+    "mom_5", "mom_20", "mom_60", "mom_120", "pe", "pb", "ps", "dv_ratio",
     "roe", "revenue_growth", "profit_growth", "ocf_growth",
-    "net_mf_5d", "net_mf_20d", "net_mf_ratio",
+    "net_mf_5d", "net_mf_20d", "net_mf_ratio", "net_mf_divergence",
     "avg_amount_20", "amount_ratio_5d", "volatility_20", "total_mv",
-    "reversal_score", "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio",
+    "reversal_score", "risk_adj_mom", "relative_strength",
+    "sector_momentum", "relative_to_sector", "sector_mom5", "sector_amount_ratio", "sector_breadth",
     "forecast_type_score", "forecast_pchange_mid", "express_diluted_roe", "express_diluted_eps",
 ]
 
