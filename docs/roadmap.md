@@ -225,8 +225,10 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
   - `scripts/evaluate.py` 可计算历史持有期收益。
   - `screen.py` 支持 `momentum_value_hybrid`、`quality_growth`、`contrarian`、`event_driven` 四策略与 `regime` 自动切换。
   - `market_regime.py` 可基于沪深300 判断市场状态。
-  - `walkforward.py` 已完成 8 个月回测。
-  - `regime` 策略更新映射后（trend_up/range → event_driven）成为整体最优：2025 年平均超额 +2.66%、方向准确率 64.0%、累计超额 +14.58%；2026 Q2 平均超额 +3.38%、累计超额 +8.99%。
+  - `walkforward.py` 已完成 **30 个月回测**（2024-01 至 2026-06）。
+  - `regime` 策略更新映射后全样本表现：平均超额 +0.02%、方向准确率 49.4%、累计超额 -4.44%。
+  - 分年度表现差异显著：2025 年强劲（平均超额 +1.48%、方向准确率 58.3%），2024 年偏弱（-0.37%、48.3%），2026 H1 较差（-2.14%、33.5%）。
+  - 早期 8 个月样本（2025 + 2026 Q2）存在样本选择偏差：跳过了 2026 年 1-2 月的大幅下跌，夸大了策略表现。
   - Feedback Harness 已产出动态权重与 prompt 自适应提示。
   - Trace 基础设施已落地：`scripts/_trace.py` + `.opencode/tool/append_trace.ts`，脚本层与 agent reasoning 均写入 `memory/trace/YYYYMMDD.jsonl`。
 
@@ -235,7 +237,8 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
   - 行业集中度控制目前为数量控制，市值权重控制尚未实现。
   - Feedback Harness 仍为手动运行，需接入 cron 实现在线学习。
   - `quality_growth` 策略在回测中表现偏弱，需继续调优。
-  - 多目标离线权重优化已实现工具，但 **70% 方向准确率阈值不可行**：pass2 权重随机搜索 10,000 组后，event_driven / contrarian 均无法达到 55% 方向准确率；需扩大样本、升级 pass1 优化、regime 条件优化或引入新因子。
+  - 多目标离线权重优化已实现工具，但 **70% 方向准确率阈值不可行**：pass2 权重随机搜索 10,000 组后，event_driven / contrarian 均无法达到 55% 方向准确率；需升级 pass1 优化、regime 条件优化或引入新因子。
+  - **全样本 30 个月回测揭示策略在 2024 年与 2026 H1 表现不佳**，说明模型对熊市/急跌环境适应性不足；早期 8 个月样本存在选择偏差。
   - 当前因子体系对**预期/主题驱动型行情**覆盖不足，2026-01-30 的东山精密案例即因静态财务/动量因子滞后而错失后续 40%+ 涨幅。
 
 ### 东山精密案例启示（2026-07-03）
