@@ -293,8 +293,11 @@ AlphaHelix 处于 **Phase 4 完成、Phase 5/6 部分落地** 的阶段：
 11. **[已完成/实验性] 基于历史 IC 的 pass2 权重校准**
    - `scripts/calibrate_weights_from_ic.py` + `walkforward.py --ic-calibrate` 已落地
    - 样本内效果显著，但 walk-forward 样本外仅小幅改善（平均超额 +0.12% vs +0.02%）
-   - 下一步：pass1 也做 IC 校准、按 regime 分别校准、引入更稳定因子
-12. **[未实现] 熊市/急跌防御机制**
+   - 2024 训练 / 2025 测试：训练权重平均超额 +0.48%，默认权重 +1.48%，说明 IC 权重跨年度不稳定
+   - 下一步：pass1 也做 IC 校准、按 regime 分别校准、缩短训练窗口、引入更稳定因子
+12. **[已完成] 样本外验证流程**
+   - `scripts/out_of_sample_validate.py` 已落地，强制 train/test 不重叠
+13. **[未实现] 熊市/急跌防御机制**
    - 动态仓位、空仓选项、趋势过滤、regime 条件权重
 12. **[未实现/后置] 自动化调度 / 交易成本 / DPO / 新数据源**（accuracy 稳定后再做）
 

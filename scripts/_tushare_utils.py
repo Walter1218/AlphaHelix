@@ -107,7 +107,7 @@ def _enforce_data_window(api_name: str, params: dict):
 
 
 def concurrent_map(func, items, max_workers: int = None):
-    """并发执行 func(item)，保留顺序返回结果。"""
+    """并发执行 func(item)，保留顺序返回结果。任一任务异常会立即抛出。"""
     if max_workers is None:
         max_workers = MAX_WORKERS
     if max_workers <= 1 or len(items) <= 1:
@@ -118,10 +118,7 @@ def concurrent_map(func, items, max_workers: int = None):
         futures = {executor.submit(func, item): i for i, item in enumerate(items)}
         for future in as_completed(futures):
             i = futures[future]
-            try:
-                results[i] = future.result()
-            except Exception as e:
-                results[i] = e
+            results[i] = future.result()
     return results
 
 

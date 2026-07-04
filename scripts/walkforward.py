@@ -324,15 +324,27 @@ def main():
 
     pass2_weights_override = None
     if args.pass2_weights:
-        print(f"[walkforward] WARNING: --pass2-weights can introduce in-sample optimization. "
-              f"Only use weights generated from data strictly before the backtest period (see AGENTS.md C38).")
         with open(args.pass2_weights, "r", encoding="utf-8") as f:
             data = json.load(f)
+
         # 兼容嵌套格式 {"weights": {"pass2": {...}}}
         if isinstance(data, dict) and "weights" in data:
             pass2_weights_override = data["weights"].get("pass2") or data["weights"]
+            metadata = data
         else:
             pass2_weights_override = data
+            metadata = {}
+
+        if metadata.get("diagnostic_only"):
+            raise RuntimeError(
+                f"Refusing to load diagnostic/in-sample weights from {args.pass2_weights}. "
+                f"See AGENTS.md C38. Only walk-forward weights (walk_forward=true) are allowed in backtests."
+            )
+        if not metadata.get("walk_forward"):
+            print(
+                f"[walkforward] WARNING: {args.pass2_weights} does not have walk_forward=true metadata. "
+                f"Ensure these weights were generated strictly from data before the backtest period."
+            )
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)

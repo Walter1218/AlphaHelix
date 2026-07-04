@@ -12,10 +12,52 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _tushare_utils import tushare_call, get_trade_date_after
+from _tushare_utils import tushare_call, get_trade_date_after, get_trade_calendar
 from _trace import trace_event
 
 BENCHMARK = "000300.SH"
+
+# 按 trade_date 缓存截面数据，避免 evaluate 时对每只股票单独请求 start/end
+_DAILY_CROSS_SECTION: dict = {}
+_INDEX_CROSS_SECTION: dict = {}
+
+
+def load_daily_cross_section(trade_date: str) -> pd.DataFrame:
+    """加载某交易日的全市场日线截面（含缓存）。"""
+    if trade_date not in _DAILY_CROSS_SECTION:
+        df = tushare_call("daily", {"trade_date": trade_date})
+        if not df.empty:
+            df["trade_date"] = df["trade_date"].astype(str)
+            df["ts_code"] = df["ts_code"].astype(str)
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        _DAILY_CROSS_SECTION[trade_date] = df
+    return _DAILY_CROSS_SECTION[trade_date]
+
+
+def load_index_cross_section(trade_date: str) -> pd.DataFrame:
+    """加载某交易日的指数日线截面（含缓存）。"""
+    if trade_date not in _INDEX_CROSS_SECTION:
+        df = tushare_call("index_daily", {"trade_date": trade_date})
+        if not df.empty:
+            df["trade_date"] = df["trade_date"].astype(str)
+            df["ts_code"] = df["ts_code"].astype(str)
+            df["close"] = pd.to_numeric(df["close"], errors="coerce")
+        _INDEX_CROSS_SECTION[trade_date] = df
+    return _INDEX_CROSS_SECTION[trade_date]
+
+
+def _close_from_cross_section(ts_code: str, trade_date: str) -> float:
+    """从截面缓存中查某只股票/指数的收盘价。"""
+    if _is_index(ts_code):
+        df = load_index_cross_section(trade_date)
+    else:
+        df = load_daily_cross_section(trade_date)
+    if df.empty:
+        raise ValueError(f"No cross-section data on {trade_date}")
+    row = df[df["ts_code"] == ts_code]
+    if row.empty:
+        raise ValueError(f"No price data for {ts_code} on {trade_date}")
+    return float(row.iloc[0]["close"])
 
 
 def load_snapshot(date: str) -> dict:
@@ -31,20 +73,26 @@ def _is_index(ts_code: str) -> bool:
 
 
 def get_close_price(ts_code: str, date: str) -> float:
-    api = "index_daily" if _is_index(ts_code) else "daily"
-    df = tushare_call(api, {"ts_code": ts_code, "trade_date": date})
-    if df.empty:
-        raise ValueError(f"No price data for {ts_code} on {date}")
-    return float(df.iloc[0]["close"])
+    return _close_from_cross_section(ts_code, date)
 
 
 def get_price_series(ts_code: str, start_date: str, end_date: str) -> pd.Series:
-    api = "index_daily" if _is_index(ts_code) else "daily"
-    df = tushare_call(api, {"ts_code": ts_code, "start_date": start_date, "end_date": end_date})
-    if df.empty:
+    """通过截面缓存拼装某股票在 [start_date, end_date] 的价格序列。"""
+    cal = get_trade_calendar("SSE", start_date, end_date)
+    cal = cal[cal["is_open"].astype(int) == 1].sort_values("cal_date")
+    dates = cal["cal_date"].astype(str).tolist()
+    if not dates:
         return pd.Series(dtype=float)
-    df = df.sort_values("trade_date").set_index("trade_date")
-    return pd.to_numeric(df["close"], errors="coerce")
+
+    values = {}
+    for d in dates:
+        try:
+            values[d] = _close_from_cross_section(ts_code, d)
+        except Exception:
+            continue
+    if not values:
+        return pd.Series(dtype=float)
+    return pd.Series(values).sort_index()
 
 
 def max_drawdown(prices: pd.Series) -> float:
