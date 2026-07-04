@@ -526,24 +526,38 @@ def cap_sector_weight(df: pd.DataFrame, top_n: int, max_pct: float = MAX_SECTOR_
     return pd.DataFrame(kept)
 
 
-def load_dynamic_weights(strategy: str) -> dict:
-    """从 memory/weights/ 加载动态权重；不存在则返回 None。"""
-    path = Path("memory/weights") / f"{strategy}_latest.json"
-    if not path.exists():
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("weights")
-    except Exception:
-        return None
+def load_dynamic_weights(strategy: str, regime: str = None) -> dict:
+    """从 memory/weights/ 加载动态权重；不存在则返回 None。
+
+    Args:
+        strategy: 策略名
+        regime: 可选，regime 名。若提供，优先加载 {strategy}_{regime}_rolling.json，
+                不存在则回退到 {strategy}_latest.json。
+    """
+    paths = []
+    if regime:
+        paths.append(Path("memory/weights") / f"{strategy}_{regime}_rolling.json")
+    paths.append(Path("memory/weights") / f"{strategy}_latest.json")
+
+    for path in paths:
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("weights")
+            except Exception:
+                continue
+    return None
 
 
-def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False):
-    """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重。
+def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
+           pass1_weights_override: dict = None, pass2_weights_override: dict = None):
+    """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重和权重覆盖。
 
     Args:
         return_full: 为 True 时返回 (top_n_records, full_df_pass2)，供离线优化使用。
+        pass1_weights_override: 可选，直接覆盖 pass1 权重。
+        pass2_weights_override: 可选，直接覆盖 pass2 权重。
     """
     actual_strategy = strategy
     regime_info = None
@@ -555,13 +569,24 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False)
         raise ValueError(f"Unknown strategy: {actual_strategy}. Available: {list(STRATEGIES.keys())} or 'regime'")
 
     config = {k: (v.copy() if isinstance(v, dict) else v) for k, v in STRATEGIES[actual_strategy].items()}
-    dynamic = load_dynamic_weights(actual_strategy)
-    if dynamic:
-        # 只覆盖与当前策略结构匹配的 pass1/pass2 权重
-        for phase in ("pass1", "pass2"):
-            if phase in dynamic and phase in config and "weights" in config[phase]:
-                config[phase]["weights"] = dynamic[phase]
-                # 如果动态权重带 filters 也可以合并，但默认不覆盖硬编码 filters
+
+    # 权重加载优先级：显式覆盖 > regime 滚动权重 > 策略最新权重 > 硬编码
+    if pass1_weights_override is not None:
+        config["pass1"]["weights"] = pass1_weights_override
+    if pass2_weights_override is not None:
+        config["pass2"]["weights"] = pass2_weights_override
+
+    dynamic = None
+    if pass1_weights_override is None or pass2_weights_override is None:
+        regime_name = regime_info.get("regime") if regime_info else None
+        dynamic = load_dynamic_weights(actual_strategy, regime=regime_name)
+        if dynamic:
+            for phase in ("pass1", "pass2"):
+                if phase in dynamic and phase in config and "weights" in config[phase]:
+                    # 只有未被显式覆盖的才使用动态权重
+                    if (phase == "pass1" and pass1_weights_override is None) or \
+                       (phase == "pass2" and pass2_weights_override is None):
+                        config[phase]["weights"] = dynamic[phase]
 
     trace_event(
         "screen.start",

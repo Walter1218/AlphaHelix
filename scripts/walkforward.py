@@ -19,6 +19,7 @@ from screen import screen, STRATEGIES
 from evaluate import evaluate
 from market_regime import classify_regime, regime_to_strategy
 from _trace import trace_event, new_run
+from online_weight_updater import load_rolling_weights, update_regime_weights
 
 DEFAULT_STRATEGY = "momentum_value_hybrid"
 DEFAULT_HORIZON = 10
@@ -131,15 +132,17 @@ def eval_path_for(trade_date: str, strategy: str, horizon: int) -> Path:
     return OUTPUT_DIR / f"{trade_date}_{strategy}_h{horizon}.json"
 
 
-def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int, resume: bool = True) -> dict:
+def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int,
+                      resume: bool = True, online_update: bool = False,
+                      pass1_weights: dict = None, pass2_weights: dict = None) -> dict:
     """运行单个选股日期的选股 + 评估。"""
     snapshot_path = SNAPSHOT_DIR / f"{trade_date}.json"
     eval_path = eval_path_for(trade_date, strategy, horizon)
 
     actual_strategy, regime_info = resolve_strategy(trade_date, strategy)
 
-    # 恢复：若快照与评估均存在且有效，直接读取
-    if resume and snapshot_path.exists() and eval_path.exists():
+    # 恢复：若快照与评估均存在且有效，直接读取（online_update 模式下不恢复，因为要重新用动态权重选股）
+    if resume and not online_update and snapshot_path.exists() and eval_path.exists():
         try:
             with open(eval_path, "r", encoding="utf-8") as f:
                 existing = json.load(f)
@@ -153,7 +156,9 @@ def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int, 
             pass
 
     # 1. 选股（同时获取完整 pass2 池供离线优化）
-    screen_result = screen(trade_date, actual_strategy, top_n, return_full=True)
+    screen_result = screen(trade_date, actual_strategy, top_n, return_full=True,
+                           pass1_weights_override=pass1_weights,
+                           pass2_weights_override=pass2_weights)
     if isinstance(screen_result, tuple):
         candidates, df_pass2 = screen_result
     else:
@@ -243,7 +248,10 @@ def main():
     parser.add_argument("--universe-size", type=int, default=None, help="Override screen.py UNIVERSE_SAMPLE (smaller=faster)")
     parser.add_argument("--skip-st-check", action="store_true", help="Skip historical ST check for speed (not for production)")
     parser.add_argument("--no-resume", action="store_true", help="Re-run even if previous results exist")
-    parser.add_argument("--progress-file", default=None, help="Write ongoing progress JSON to this path")
+    parser.add_argument("--progress-file", default=None, help="Write ongoing progress JSON to this file")
+    parser.add_argument("--online-update", action="store_true", help="Enable walk-forward online learning with regime-conditional weights")
+    parser.add_argument("--online-lookback", type=int, default=6, help="Rolling window size for online weight update")
+    parser.add_argument("--online-lr", type=float, default=0.5, help="Learning rate for online weight update")
     args = parser.parse_args()
 
     if args.universe_size is not None:
@@ -253,6 +261,8 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    if args.online_update:
+        Path("memory/weights").mkdir(parents=True, exist_ok=True)
     run_id = new_run()
 
     trade_dates = get_monthly_trade_dates(args.start, args.end)
@@ -268,6 +278,9 @@ def main():
                 "freq": args.freq,
                 "universe_size": args.universe_size,
                 "skip_st_check": args.skip_st_check,
+                "online_update": args.online_update,
+                "online_lookback": args.online_lookback,
+                "online_lr": args.online_lr,
                 "run_id": run_id,
                 "trade_dates": trade_dates,
             }
@@ -280,11 +293,34 @@ def main():
 
     results = []
     start_time = datetime.now()
+    # 在线学习：预加载各 regime 滚动权重
+    current_weights = {}
     for idx, td in enumerate(trade_dates, 1):
         period_start = datetime.now()
         print(f"[walkforward] [{idx}/{len(trade_dates)}] {td} ...", end=" ", flush=True)
+
+        # 解析该期 regime / 实际策略
+        actual_strategy, regime_info = resolve_strategy(td, args.strategy)
+        regime = regime_info["regime"] if regime_info else None
+        strategy_key = actual_strategy
+
+        # 在线学习：加载该 regime 的滚动权重
+        pass1_weights, pass2_weights = None, None
+        if args.online_update and regime:
+            wkey = (strategy_key, regime)
+            if wkey not in current_weights:
+                current_weights[wkey] = load_rolling_weights(strategy_key, regime)
+            pass1_weights = current_weights[wkey].get("pass1")
+            pass2_weights = current_weights[wkey].get("pass2")
+
         try:
-            res = run_single_period(td, args.strategy, args.horizon, args.top_n, resume=not args.no_resume)
+            res = run_single_period(
+                td, args.strategy, args.horizon, args.top_n,
+                resume=not args.no_resume,
+                online_update=args.online_update,
+                pass1_weights=pass1_weights,
+                pass2_weights=pass2_weights,
+            )
             elapsed = (datetime.now() - period_start).total_seconds()
             if "error" in res:
                 print(f"ERROR: {res['error']} ({elapsed:.0f}s)")
@@ -292,12 +328,25 @@ def main():
                 status = "resumed" if res.get("resumed") else "done"
                 strategy_tag = f" strategy={res.get('strategy', '?')}"
                 regime_tag = f" regime={res.get('regime', '?')}" if res.get('regime') else ""
-                print(f"portfolio={res['portfolio_return']:+.2%} excess={res['excess_return']:+.2%} hit={res['direction_accuracy']:.0%}[{status}]{strategy_tag}{regime_tag} ({elapsed:.0f}s)")
+                weight_tag = " online" if args.online_update else ""
+                print(f"portfolio={res['portfolio_return']:+.2%} excess={res['excess_return']:+.2%} hit={res['direction_accuracy']:.0%}[{status}]{strategy_tag}{regime_tag}{weight_tag} ({elapsed:.0f}s)")
         except Exception as e:
             elapsed = (datetime.now() - period_start).total_seconds()
             print(f"EXCEPTION: {e} ({elapsed:.0f}s)")
             res = {"date": td, "error": str(e)}
         results.append(res)
+
+        # 在线学习：用该期结果更新该 regime 滚动权重（仅用于下一期）
+        if args.online_update and regime and "error" not in res:
+            try:
+                updated = update_regime_weights(
+                    strategy_key, regime, args.horizon, td,
+                    max_lookback=args.online_lookback,
+                    learning_rate=args.online_lr,
+                )
+                current_weights[(strategy_key, regime)] = updated
+            except Exception as e:
+                print(f"[walkforward] online update failed for {td} {regime}: {e}")
 
         if "error" not in res:
             trace_event(
