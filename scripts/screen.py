@@ -625,7 +625,13 @@ def load_dynamic_weights(strategy: str, regime: str = None) -> dict:
         strategy: 策略名
         regime: 可选，regime 名。若提供，优先加载 {strategy}_{regime}_rolling.json，
                 不存在则回退到 {strategy}_latest.json。
+
+    注意：回测模式下（AH_BACKTEST_MODE=1）不加载动态权重，避免 latest.json
+    包含未来数据导致时间穿越。walk-forward 在线学习应通过显式 override 传入权重。
     """
+    if os.environ.get("AH_BACKTEST_MODE", "").lower() in ("1", "true", "yes"):
+        return None
+
     paths = []
     if regime:
         paths.append(Path("memory/weights") / f"{strategy}_{regime}_rolling.json")

@@ -23,7 +23,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from weight_optimizer import DEFAULT_BASE_WEIGHTS
 
 SNAPSHOT_DIR = Path("memory/stock")
-EVAL_DIR = Path("eval")
 WEIGHTS_DIR = Path("memory/weights")
 
 
@@ -148,6 +147,14 @@ def main():
     parser.add_argument("--output", default=None, help="Output weights file name; default {strategy}_ic.json")
     args = parser.parse_args()
 
+    print("=" * 60)
+    print("WARNING: This script produces weights based on a given set of")
+    print("historical results. Using these weights to backtest the SAME")
+    print("periods violates AGENTS.md C38 (no time travel / no in-sample)")
+    print("optimization). Only use the output in walk-forward mode, where")
+    print("each period's weights come from strictly prior data.")
+    print("=" * 60)
+
     df = load_results(strategy=args.strategy)
     if df.empty:
         print("No data found")
@@ -185,8 +192,11 @@ def main():
         "min_ic": args.min_ic,
         "based_on_picks": len(df),
         "based_on_dates": df["date"].nunique(),
+        "diagnostic_only": True,
+        "warning": "In-sample weights. Do not backtest the same dates. Use only in walk-forward mode.",
     }, ensure_ascii=False, indent=2))
     print(f"\nSaved to {out_path}")
+    print("WARNING: output marked as diagnostic_only=True.")
 
 
 if __name__ == "__main__":

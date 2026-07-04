@@ -319,11 +319,20 @@ def main():
         os.environ["AH_UNIVERSE_SAMPLE"] = str(args.universe_size)
     if args.skip_st_check:
         os.environ["AH_SKIP_ST_CHECK"] = "1"
+    # 回测模式下禁止 screen.py 自动加载可能含未来数据的 latest.json
+    os.environ["AH_BACKTEST_MODE"] = "1"
 
     pass2_weights_override = None
     if args.pass2_weights:
+        print(f"[walkforward] WARNING: --pass2-weights can introduce in-sample optimization. "
+              f"Only use weights generated from data strictly before the backtest period (see AGENTS.md C38).")
         with open(args.pass2_weights, "r", encoding="utf-8") as f:
-            pass2_weights_override = json.load(f)
+            data = json.load(f)
+        # 兼容嵌套格式 {"weights": {"pass2": {...}}}
+        if isinstance(data, dict) and "weights" in data:
+            pass2_weights_override = data["weights"].get("pass2") or data["weights"]
+        else:
+            pass2_weights_override = data
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)

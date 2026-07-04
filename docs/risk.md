@@ -15,6 +15,7 @@
 | C05 | **行业分类仅报告用** | `stock_basic` 的 `industry` 只做展示，不做历史量化截断 | `screen.py:build_universe` |
 | C06 | **指数数据用对接口** | 个股用 `daily`，指数用 `index_daily` | `evaluate.py:get_close_price` |
 | C07 | **只使用公开数据源** | 禁止接入非公开渠道或内幕信息 | 数据源仅限 Tushare |
+| C38 | **策略决策必须 walk-forward / 样本外** | 任何影响选股决策的模型、因子、权重、阈值、参数，只能用决策点之前的数据生成；禁止在全样本上调优后回测同一区间 | `agents.md` 2.5 节 |
 
 ### 0.2 计算与评估纪律
 
