@@ -18,6 +18,7 @@ from _tushare_utils import get_trade_calendar, get_trade_date_after
 from screen import screen, STRATEGIES
 from evaluate import evaluate
 from market_regime import classify_regime, regime_to_strategy
+from market_defense import get_defensive_position
 from _trace import trace_event, new_run
 from online_weight_updater import load_rolling_weights, update_regime_weights
 from calibrate_weights_from_ic import compute_pass2_weights_for_dates
@@ -278,15 +279,19 @@ def aggregate_results(results: list) -> dict:
     cumulative_excess = cumulative_return - cumulative_benchmark
 
     cash_count = sum(1 for r in valid if r.get("cash"))
+    position_ratios = [r.get("position_ratio", 1.0) for r in valid]
+    portfolio_directions = [r.get("portfolio_direction", 1 if r["portfolio_return"] > 0 else 0) for r in valid]
     return {
         "periods": len(valid),
         "skipped": len(results) - len(valid),
         "cash_periods": cash_count,
         "active_periods": len(valid) - cash_count,
+        "avg_position_ratio": round(float(np.mean(position_ratios)), 4),
         "avg_portfolio_return": round(float(np.mean(portfolio_returns)), 6),
         "avg_excess_return": round(float(np.mean(excess_returns)), 6),
         "avg_direction_accuracy": round(float(np.mean(direction_accuracies)), 4),
         "avg_top3_hit_rate": round(float(np.mean(top3_hit_rates)), 4),
+        "avg_portfolio_direction": round(float(np.mean(portfolio_directions)), 4),
         "avg_max_drawdown": round(float(np.mean(mdds)), 6),
         "win_rate_excess": round(float(np.mean([e > 0 for e in excess_returns])), 4),
         "cumulative_portfolio_return": round(cumulative_return, 6),
@@ -316,6 +321,9 @@ def main():
     parser.add_argument("--regime-weights-dir", type=str, default=None, help="Directory with per-regime pass2 weight files named {strategy}_{regime}.json")
     parser.add_argument("--ic-calibrate", action="store_true", help="Walk-forward out-of-sample IC calibration: use prior periods to set pass2 weights")
     parser.add_argument("--ic-min-ic", type=float, default=0.0, help="Minimum IC threshold for ic-calibrate")
+    parser.add_argument("--defense-mode", action="store_true", help="Enable defensive position sizing based on regime and recent market drawdown")
+    parser.add_argument("--defense-base", type=str, default=None, help='JSON dict of base position ratios by regime, e.g. {"range":1.0,"trend_up":1.0,"trend_down":0.5,"high_vol":0.8}')
+    parser.add_argument("--defense-dd", type=str, default=None, help='JSON dict of drawdown windows, e.g. {"60":-0.15}')
     args = parser.parse_args()
 
     if args.universe_size is not None:
@@ -374,6 +382,14 @@ def main():
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     if args.online_update:
         Path("memory/weights").mkdir(parents=True, exist_ok=True)
+
+    defense_base = None
+    defense_dd = None
+    if args.defense_mode:
+        if args.defense_base:
+            defense_base = json.loads(args.defense_base)
+        if args.defense_dd:
+            defense_dd = {int(k): float(v) for k, v in json.loads(args.defense_dd).items()}
     run_id = new_run()
 
     trade_dates = get_rebalance_dates(args.start, args.end, freq=args.freq)
@@ -396,6 +412,7 @@ def main():
                 "pass2_weights": args.pass2_weights,
                 "ic_calibrate": args.ic_calibrate,
                 "ic_min_ic": args.ic_min_ic,
+                "defense_mode": args.defense_mode,
                 "run_id": run_id,
                 "trade_dates": trade_dates,
             }
@@ -473,6 +490,20 @@ def main():
             elapsed = (datetime.now() - period_start).total_seconds()
             print(f"EXCEPTION: {e} ({elapsed:.0f}s)")
             res = {"date": td, "error": str(e)}
+        # 防御模式：根据 regime 与近期回撤调整仓位，缩放组合收益与超额
+        if args.defense_mode and "error" not in res and "portfolio_return" in res:
+            position_ratio = get_defensive_position(td, regime_info=regime_info, base_ratio=defense_base, drawdown_windows=defense_dd)
+            raw_portfolio = res["portfolio_return"]
+            raw_excess = res["excess_return"]
+            benchmark = res["benchmark_return"]
+            res["position_ratio"] = round(position_ratio, 4)
+            res["raw_portfolio_return"] = round(raw_portfolio, 6)
+            res["raw_excess_return"] = round(raw_excess, 6)
+            # 股票仓位收益按仓位比例缩放，现金部分收益 = 0
+            res["portfolio_return"] = round(raw_portfolio * position_ratio, 6)
+            res["excess_return"] = round(res["portfolio_return"] - benchmark, 6)
+            res["portfolio_direction"] = 1 if res["portfolio_return"] > 0 else 0
+
         results.append(res)
 
         # 在线学习：用该期结果更新该 regime 滚动权重（仅用于下一期）
@@ -549,9 +580,11 @@ def main():
 
     print("\n=== Walk-forward Summary ===")
     print(f"Periods: {summary.get('periods', 0)} (skipped: {summary.get('skipped', 0)}, cash: {summary.get('cash_periods', 0)})")
+    print(f"Avg position ratio: {summary.get('avg_position_ratio', 1.0):.1%}")
     print(f"Avg portfolio return: {summary.get('avg_portfolio_return', 0):+.2%}")
     print(f"Avg excess return: {summary.get('avg_excess_return', 0):+.2%}")
     print(f"Avg direction accuracy: {summary.get('avg_direction_accuracy', 0):.1%}")
+    print(f"Avg portfolio direction: {summary.get('avg_portfolio_direction', 0):.1%}")
     print(f"Avg Top3 hit rate: {summary.get('avg_top3_hit_rate', 0):.1%}")
     print(f"Win rate (excess > 0): {summary.get('win_rate_excess', 0):.1%}")
     print(f"Cumulative portfolio return: {summary.get('cumulative_portfolio_return', 0):+.2%}")
