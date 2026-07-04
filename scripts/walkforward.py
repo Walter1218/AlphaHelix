@@ -139,9 +139,38 @@ def eval_path_for(trade_date: str, strategy: str, horizon: int) -> Path:
     return OUTPUT_DIR / f"{trade_date}_{strategy}_h{horizon}.json"
 
 
+def _evaluate_cash(trade_date: str, horizon: int) -> dict:
+    """阈值未触发时视为空仓（组合收益=0），计算相对基准的指标。"""
+    from _tushare_utils import tushare_call
+    exit_date = get_trade_date_after(trade_date, days=horizon)
+    bench_entry = float(tushare_call("index_daily", {"ts_code": "000300.SH", "trade_date": trade_date}).iloc[0]["close"])
+    bench_exit = float(tushare_call("index_daily", {"ts_code": "000300.SH", "trade_date": exit_date}).iloc[0]["close"])
+    benchmark_return = (bench_exit / bench_entry) - 1
+    portfolio_return = 0.0
+    excess_return = portfolio_return - benchmark_return
+    # 空仓方向判断：基准跌则正确，基准涨则错误
+    direction_accuracy = 1.0 if benchmark_return < 0 else 0.0
+    return {
+        "date": trade_date,
+        "exit_date": exit_date,
+        "horizon": horizon,
+        "benchmark": "000300.SH",
+        "benchmark_return": round(benchmark_return, 6),
+        "portfolio_return": round(portfolio_return, 6),
+        "excess_return": round(excess_return, 6),
+        "direction_accuracy": round(direction_accuracy, 4),
+        "top3_hit_rate": 0.0,
+        "portfolio_max_drawdown": 0.0,
+        "confidence_correlation": 0.0,
+        "details": [],
+        "cash": True,
+    }
+
+
 def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int,
                       resume: bool = True, online_update: bool = False,
-                      pass1_weights: dict = None, pass2_weights: dict = None) -> dict:
+                      pass1_weights: dict = None, pass2_weights: dict = None,
+                      min_score: float = None) -> dict:
     """运行单个选股日期的选股 + 评估。"""
     snapshot_path = SNAPSHOT_DIR / f"{trade_date}.json"
     eval_path = eval_path_for(trade_date, strategy, horizon)
@@ -174,6 +203,23 @@ def run_single_period(trade_date: str, strategy: str, horizon: int, top_n: int,
 
     if not candidates:
         return {"date": trade_date, "error": "No candidates generated"}
+
+    # 应用最低分数阈值：未达阈值视为空仓
+    if min_score is not None and candidates:
+        top_score = candidates[0].get("total_score", candidates[0].get("score", 0))
+        if top_score < min_score:
+            try:
+                result = _evaluate_cash(trade_date, horizon)
+                result["candidates"] = 0
+                result["strategy"] = actual_strategy
+                result["min_score_threshold"] = min_score
+                result["top_score"] = round(top_score, 4)
+                if regime_info:
+                    result["regime"] = regime_info["regime"]
+                eval_path.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+                return result
+            except Exception as e:
+                return {"date": trade_date, "error": f"Cash evaluation failed: {e}", "candidates": 0}
 
     # 2. 写入 snapshot（兼容原路径 + 策略专属路径 + 完整 pass2 路径）
     snapshot = build_snapshot(trade_date, candidates, horizon)
@@ -228,9 +274,12 @@ def aggregate_results(results: list) -> dict:
     cumulative_benchmark = float(np.prod([1 + x for x in benchmark_returns]) - 1)
     cumulative_excess = cumulative_return - cumulative_benchmark
 
+    cash_count = sum(1 for r in valid if r.get("cash"))
     return {
         "periods": len(valid),
         "skipped": len(results) - len(valid),
+        "cash_periods": cash_count,
+        "active_periods": len(valid) - cash_count,
         "avg_portfolio_return": round(float(np.mean(portfolio_returns)), 6),
         "avg_excess_return": round(float(np.mean(excess_returns)), 6),
         "avg_direction_accuracy": round(float(np.mean(direction_accuracies)), 4),
@@ -259,6 +308,7 @@ def main():
     parser.add_argument("--online-update", action="store_true", help="Enable walk-forward online learning with regime-conditional weights")
     parser.add_argument("--online-lookback", type=int, default=6, help="Rolling window size for online weight update")
     parser.add_argument("--online-lr", type=float, default=0.5, help="Learning rate for online weight update")
+    parser.add_argument("--min-score", type=float, default=None, help="Minimum top-score threshold; below this the period is treated as cash")
     args = parser.parse_args()
 
     if args.universe_size is not None:
@@ -288,6 +338,7 @@ def main():
                 "online_update": args.online_update,
                 "online_lookback": args.online_lookback,
                 "online_lr": args.online_lr,
+                "min_score": args.min_score,
                 "run_id": run_id,
                 "trade_dates": trade_dates,
             }
@@ -327,6 +378,7 @@ def main():
                 online_update=args.online_update,
                 pass1_weights=pass1_weights,
                 pass2_weights=pass2_weights,
+                min_score=args.min_score,
             )
             elapsed = (datetime.now() - period_start).total_seconds()
             if "error" in res:
@@ -416,7 +468,7 @@ def main():
     )
 
     print("\n=== Walk-forward Summary ===")
-    print(f"Periods: {summary.get('periods', 0)} (skipped: {summary.get('skipped', 0)})")
+    print(f"Periods: {summary.get('periods', 0)} (skipped: {summary.get('skipped', 0)}, cash: {summary.get('cash_periods', 0)})")
     print(f"Avg portfolio return: {summary.get('avg_portfolio_return', 0):+.2%}")
     print(f"Avg excess return: {summary.get('avg_excess_return', 0):+.2%}")
     print(f"Avg direction accuracy: {summary.get('avg_direction_accuracy', 0):.1%}")
