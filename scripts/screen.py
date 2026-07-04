@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _tushare_utils import tushare_call, get_trade_date_before, is_st_historical, concurrent_map
 from market_regime import classify_regime, regime_to_strategy
 from _trace import trace_event
+from online_predictor import RegimeModelManager, features_from_record, DEFAULT_FEATURE_NAMES
 
 warnings.filterwarnings("ignore")
 
@@ -698,13 +699,18 @@ def load_dynamic_weights(strategy: str, regime: str = None) -> dict:
 
 
 def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
-           pass1_weights_override: dict = None, pass2_weights_override: dict = None):
+           pass1_weights_override: dict = None, pass2_weights_override: dict = None,
+           manager: RegimeModelManager = None, threshold: float = 0.5,
+           max_positions: int = None):
     """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重和权重覆盖。
 
     Args:
         return_full: 为 True 时返回 (top_n_records, full_df_pass2)，供离线优化使用。
         pass1_weights_override: 可选，直接覆盖 pass1 权重。
         pass2_weights_override: 可选，直接覆盖 pass2 权重。
+        manager: 可选，在线预测模型管理器；提供时优先用于预测上涨概率。
+        threshold: 入选持仓的预测概率阈值。
+        max_positions: 最大持仓数量；None 时使用 top_n。
     """
     actual_strategy = strategy
     regime_info = None
@@ -759,8 +765,24 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
     df_pass1 = pass1_screen(df_universe, date, config["pass1"])
     df_pass2 = pass2_enrich(df_pass1, date, config["pass2"])
 
-    # 行业数量集中度截断（基于当前行业分类，仅作辅助参考）
-    df_result = cap_sector_weight(df_pass2, top_n, max_pct=MAX_SECTOR_PCT)
+    # 如果提供了在线预测模型，用模型输出上涨概率替代 total_score
+    regime_for_predictor = regime_info.get("regime") if regime_info else "range"
+    use_predictor = manager is not None and manager.is_ready(regime_for_predictor)
+    df_pass2_full = df_pass2.copy()
+    if use_predictor:
+        probs = []
+        for _, row in df_pass2_full.iterrows():
+            x = features_from_record(row.to_dict(), manager.feature_names)
+            prob = manager.predict_proba(regime_for_predictor, x)
+            probs.append(prob)
+        df_pass2_full["predicted_up_prob"] = probs
+        df_pass2_filtered = df_pass2_full[df_pass2_full["predicted_up_prob"] > threshold]
+        df_pass2_filtered = df_pass2_filtered.sort_values("predicted_up_prob", ascending=False)
+        cap_n = max_positions if max_positions is not None else top_n
+        df_result = cap_sector_weight(df_pass2_filtered, cap_n, max_pct=MAX_SECTOR_PCT)
+    else:
+        # 行业数量集中度截断（基于当前行业分类，仅作辅助参考）
+        df_result = cap_sector_weight(df_pass2_full, top_n, max_pct=MAX_SECTOR_PCT)
 
     if df_result.empty:
         trace_event(
@@ -769,10 +791,10 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
             date=date,
             strategy=actual_strategy,
         )
-        return ([], df_pass2) if return_full else []
+        return ([], df_pass2_full) if return_full else []
 
     output_cols = [
-        "ts_code", "name", "industry", "total_score",
+        "ts_code", "name", "industry", "total_score", "predicted_up_prob",
         "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
         "roe", "revenue_growth", "profit_growth", "ocf_growth",
         "net_mf_5d", "net_mf_20d", "net_mf_ratio",
@@ -790,7 +812,10 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
             "outputs": {
                 "candidates": len(records),
                 "pass2_pool_size": len(df_pass2),
-                "top_picks": [{"ts_code": r["ts_code"], "name": r.get("name"), "score": r.get("total_score")} for r in records[:top_n]],
+                "use_predictor": use_predictor,
+                "top_picks": [{"ts_code": r["ts_code"], "name": r.get("name"),
+                               "score": r.get("total_score"), "prob": r.get("predicted_up_prob")}
+                              for r in records[:top_n]],
             },
             "metadata": {
                 "universe_size": len(df_universe),
@@ -802,7 +827,7 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
     )
 
     if return_full:
-        return records, df_pass2
+        return records, df_pass2_full
     return records
 
 
