@@ -22,10 +22,20 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from evaluate import get_close_price
-from _tushare_utils import tushare_call, get_trade_calendar
+from _tushare_utils import tushare_call, get_trade_calendar, get_trade_date_before
 
 # 全市场每日收盘价缓存，避免反复加载
 _close_cache: dict = {}
+# ts_code -> {date: close} 的反向索引，用于快速构造个股时间序列
+_close_by_code: dict = {}
+
+
+def _update_close_index(d: str, ts_code: str, price: float):
+    """同步更新全键缓存和按代码索引。"""
+    _close_cache[(d, ts_code)] = float(price)
+    if ts_code not in _close_by_code:
+        _close_by_code[ts_code] = {}
+    _close_by_code[ts_code][d] = float(price)
 
 
 def _warm_close_cache(dates):
@@ -40,7 +50,7 @@ def _warm_close_cache(dates):
                 df["ts_code"] = df["ts_code"].astype(str)
                 df["close"] = pd.to_numeric(df["close"], errors="coerce")
                 for _, row in df.iterrows():
-                    _close_cache[(d_str, row["ts_code"])] = float(row["close"])
+                    _update_close_index(d_str, row["ts_code"], float(row["close"]))
         except Exception:
             continue
 
@@ -56,10 +66,8 @@ def _get_cached_close(ts_code: str, date: str) -> float:
 
 def _get_cached_price_series(ts_code: str, start_date: str, end_date: str) -> pd.Series:
     """基于已缓存的截面数据构造个股价格序列。"""
-    values = {}
-    for (d, code), price in _close_cache.items():
-        if code == ts_code and start_date <= d <= end_date:
-            values[d] = price
+    series_dict = _close_by_code.get(ts_code, {})
+    values = {d: p for d, p in series_dict.items() if start_date <= d <= end_date}
     if not values:
         return pd.Series(dtype=float)
     return pd.Series(values).sort_index()
@@ -124,9 +132,75 @@ def simulate_position(code, shares, entry_price, stop_price, start_date, end_dat
     return proceeds - cost, False, len(future), future.index[-1]
 
 
+def _get_recent_volatility(code: str, end_date: str, window: int = 20) -> float:
+    """基于缓存收盘价计算个股最近 window 个交易日的收益率波动率。"""
+    try:
+        series_dict = _close_by_code.get(code, {})
+        # 只取小于等于 end_date 的交易日，避免 look-ahead
+        valid_dates = sorted(d for d in series_dict.keys() if d <= end_date)
+        if len(valid_dates) < window // 2:
+            return np.nan
+        prices = pd.Series({d: series_dict[d] for d in valid_dates})
+        returns = prices.sort_index().pct_change().dropna()
+        if len(returns) < 3:
+            return np.nan
+        # 用最近 window 个交易日的收益率
+        return float(returns.tail(window).std())
+    except Exception:
+        return np.nan
+
+
+def _compute_weights(day_df: pd.DataFrame, prices: dict, scheme: str = "equal") -> dict:
+    """
+    计算目标持仓权重。
+
+    scheme:
+    - equal: 等权
+    - score: 按预测得分（非负）加权
+    - risk_parity: 按波动率倒数加权
+    - score_risk: 得分 / 波动率 加权
+    """
+    codes = [c for c in day_df["ts_code"].tolist() if c in prices]
+    if not codes:
+        return {}
+
+    sub = day_df[day_df["ts_code"].isin(codes)].copy()
+    sub = sub.sort_values("predicted", ascending=False).head(len(codes))
+    scores = sub.set_index("ts_code")["predicted"]
+
+    if scheme == "equal":
+        raw = {c: 1.0 for c in codes}
+    elif scheme == "score":
+        raw = {c: max(0.0, float(scores.get(c, 0.0))) for c in codes}
+    elif scheme in ("risk_parity", "score_risk"):
+        end_date = sub["date"].iloc[0].strftime("%Y%m%d") if "date" in sub.columns else None
+        vols = {}
+        for c in codes:
+            vol = _get_recent_volatility(c, end_date) if end_date else np.nan
+            vols[c] = vol if vol and vol > 0 else np.nan
+        median_vol = np.nanmedian(list(vols.values())) if any(np.isfinite(list(vols.values()))) else 1e-6
+        raw = {}
+        for c in codes:
+            vol = vols.get(c, median_vol)
+            if not np.isfinite(vol) or vol <= 0:
+                vol = median_vol
+            if scheme == "risk_parity":
+                raw[c] = 1.0 / vol
+            else:
+                raw[c] = max(0.0, float(scores.get(c, 0.0))) / vol
+    else:
+        raise ValueError(f"Unknown weight scheme: {scheme}")
+
+    total = sum(raw.values())
+    if total <= 0:
+        return {c: 1.0 / len(codes) for c in codes}
+    return {c: v / total for c, v in raw.items()}
+
+
 def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
                  commission=0.0002, stamp_tax=0.001, slippage=0.001,
-                 pred_threshold=None, stop_loss_pct=None):
+                 pred_threshold=None, stop_loss_pct=None,
+                 weight_scheme: str = "equal"):
     df = pd.read_parquet(pred_path)
     df["date"] = pd.to_datetime(df["date"])
     dates = sorted(df["date"].unique())
@@ -195,12 +269,20 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
             except Exception:
                 pass
 
-        n = len([c for c in new_holdings if c in new_prices])
+        valid_codes = [c for c in new_holdings if c in new_prices]
+        n = len(valid_codes)
+        weights = {}
         if n > 0:
-            target_value = portfolio_value / n
+            weights = _compute_weights(
+                day_df[day_df["ts_code"].isin(valid_codes)],
+                new_prices,
+                scheme=weight_scheme,
+            )
             for code in new_holdings:
                 if code not in new_prices:
                     continue
+                weight = weights.get(code, 1.0 / n)
+                target_value = portfolio_value * weight
                 old_value = positions.get(code, 0) * new_prices[code]
                 delta = target_value - old_value
                 if delta > 0:
@@ -302,6 +384,9 @@ def main():
     parser.add_argument("--pred-threshold", type=float, default=None)
     parser.add_argument("--stop-loss-pct", type=float, default=None,
                         help="个股止损比例，例如 0.05 表示跌 5% 止损")
+    parser.add_argument("--weight-scheme", type=str, default="equal",
+                        choices=["equal", "score", "risk_parity", "score_risk"],
+                        help="持仓权重方案：equal 等权，score 按预测得分，risk_parity 按波动率倒数，score_risk 结合得分和风险")
     args = parser.parse_args()
 
     summary = run_backtest(
@@ -313,6 +398,7 @@ def main():
         slippage=args.slippage,
         pred_threshold=args.pred_threshold,
         stop_loss_pct=args.stop_loss_pct,
+        weight_scheme=args.weight_scheme,
     )
 
     print("\n=== Portfolio Backtest Summary ===")

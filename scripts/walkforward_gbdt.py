@@ -62,7 +62,8 @@ def run_walkforward_gbdt(pred_path: str = None,
                          end_date: str = None,
                          use_wf_threshold: bool = False,
                          wf_train_periods: int = 12,
-                         wf_metric: str = "win_rate") -> dict:
+                         wf_metric: str = "win_rate",
+                         weight_scheme: str = "equal") -> dict:
     if pred_path:
         pred_df = pd.read_parquet(pred_path)
     elif dataset_path:
@@ -106,6 +107,7 @@ def run_walkforward_gbdt(pred_path: str = None,
         slippage=slippage,
         pred_threshold=pred_threshold,
         stop_loss_pct=stop_loss_pct,
+        weight_scheme=weight_scheme,
     )
     tmp_path.unlink(missing_ok=True)
 
@@ -122,6 +124,7 @@ def run_walkforward_gbdt(pred_path: str = None,
     summary["use_wf_threshold"] = use_wf_threshold
     summary["wf_train_periods"] = wf_train_periods
     summary["wf_metric"] = wf_metric
+    summary["weight_scheme"] = weight_scheme
 
     summary_path = OUTPUT_DIR / f"gbdt_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -156,6 +159,9 @@ def main():
                         help="阈值校准优化目标")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
+    parser.add_argument("--weight-scheme", type=str, default="equal",
+                        choices=["equal", "score", "risk_parity", "score_risk"],
+                        help="持仓权重方案：equal 等权，score 按预测得分，risk_parity 按波动率倒数，score_risk 结合得分和风险")
     args = parser.parse_args()
 
     if not args.pred_path and not args.dataset:
@@ -180,6 +186,7 @@ def main():
         use_wf_threshold=args.use_wf_threshold,
         wf_train_periods=args.wf_train_periods,
         wf_metric=args.wf_metric,
+        weight_scheme=args.weight_scheme,
     )
 
     print("\n=== Walk-forward GBDT Backtest Summary ===")
