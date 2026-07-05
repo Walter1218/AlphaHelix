@@ -554,7 +554,37 @@ python scripts/llm_event_filter.py --date 20250402 --ts-codes 000001.SZ,600519.S
 - `300125.SZ`（*ST 美晨）被识别为高风险，分数 10.0；
 - 平安银行、贵州茅台为中性 0.0。
 
-#### 4.5 当前仍未解决
+#### 4.5 Walk-forward 阈值校准（已完成）
+
+新增 `scripts/walkforward_threshold.py`：
+- 每期用过去 N 期的预测数据，在候选分位数阈值 q ∈ [0.5, 0.9] 中选出训练窗口内表现最好的 q；
+- T 日只选预测得分 >= T 日 q 分位数的股票；
+- 完全基于历史数据校准阈值，避免在全样本上优化。
+
+**回测结果（扣成本，等权 top-20，metric=win_rate）**：
+
+| 训练窗口 | 平均超额 | 累计超额 | 胜率 |
+|---|---|---|---|
+| 无阈值 baseline | 0.29% | 40.2% | 53.3% |
+| 6 期 | 0.30% | 41.2% | 54.3% |
+| 12 期 | **0.36%** | **53.2%** | **55.2%** |
+| 18 期 | 0.38% | 56.8% | 56.2% |
+| 24 期 | 0.39% | 59.3% | 56.2% |
+
+> 结论：walk-forward 阈值校准是**有效且未穿越**的改进。用过去 12 期（约 2.5 个月）数据选阈值，胜率从 53.3% 提升到 55.2%，累计超额从 40.2% 提升到 53.2%。训练窗口更长（18/24 期）效果略好，但提升边际递减，12 期作为默认参数已较稳健。
+
+用法：
+```bash
+python scripts/walkforward_threshold.py \
+  --pred memory/predictions/predictions_h10_walkforward_excess_return_regression.parquet \
+  --output memory/predictions/predictions_h10_walkforward_threshold_winrate.parquet \
+  --train-periods 12 --metric win_rate
+
+python scripts/portfolio_backtest.py \
+  --pred-path memory/predictions/predictions_h10_walkforward_threshold_winrate.parquet
+```
+
+#### 4.6 当前仍未解决
 
 1. **更大规模的 AKShare 回填**：80 只高频股票只能覆盖 61% 持仓，若要全覆盖 344 只 unique top-20 股票，抓取时间需 20~30 分钟，需改为离线批量任务或购买更稳定数据源；
 2. **`memory_search`**：HelixAgent 服务端报错，需等官方修复或自建本地 RAG。
