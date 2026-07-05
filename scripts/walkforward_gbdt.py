@@ -56,6 +56,7 @@ def run_walkforward_gbdt(pred_path: str = None,
                          stamp_tax: float = 0.001,
                          slippage: float = 0.001,
                          pred_threshold: float = None,
+                         stop_loss_pct: float = None,
                          start_date: str = None,
                          end_date: str = None) -> dict:
     if pred_path:
@@ -84,6 +85,7 @@ def run_walkforward_gbdt(pred_path: str = None,
         stamp_tax=stamp_tax,
         slippage=slippage,
         pred_threshold=pred_threshold,
+        stop_loss_pct=stop_loss_pct,
     )
     tmp_path.unlink(missing_ok=True)
 
@@ -96,6 +98,7 @@ def run_walkforward_gbdt(pred_path: str = None,
     summary["stamp_tax"] = stamp_tax
     summary["slippage"] = slippage
     summary["pred_threshold"] = pred_threshold
+    summary["stop_loss_pct"] = stop_loss_pct
 
     summary_path = OUTPUT_DIR / f"gbdt_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -120,6 +123,8 @@ def main():
     parser.add_argument("--stamp-tax", type=float, default=0.001)
     parser.add_argument("--slippage", type=float, default=0.001)
     parser.add_argument("--pred-threshold", type=float, default=None)
+    parser.add_argument("--stop-loss-pct", type=float, default=None,
+                        help="个股止损比例，例如 0.05 表示跌 5% 止损")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
     args = parser.parse_args()
@@ -140,6 +145,7 @@ def main():
         stamp_tax=args.stamp_tax,
         slippage=args.slippage,
         pred_threshold=args.pred_threshold,
+        stop_loss_pct=args.stop_loss_pct,
         start_date=args.start_date,
         end_date=args.end_date,
     )
