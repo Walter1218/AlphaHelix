@@ -56,28 +56,61 @@ def get_feature_cols(df: pd.DataFrame) -> list:
     return [c for c in numeric if c not in exclude]
 
 
+def _compute_group_counts(df: pd.DataFrame, id_col: str = "date") -> np.ndarray:
+    """为 LightGBM LambdaRank 计算 query group 大小（按日期分组）。"""
+    return df.groupby(id_col).size().values
+
+
+def _make_rank_label(df: pd.DataFrame, target: str, n_bins: int = 5) -> np.ndarray:
+    """把连续目标转换为每个查询内的整数 relevance 标签（0~n_bins-1），用于 LambdaRank。"""
+    df = df.copy()
+    df["_rank_pct"] = df.groupby("date")[target].rank(pct=True, method="first")
+    df["_label"] = (df["_rank_pct"] * n_bins).clip(upper=n_bins - 1).astype(int)
+    return df["_label"].values
+
+
 def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
                model_type: str = "lightgbm",
                num_rounds: int = 500,
                early_stopping: int = 30,
-               target: str = "excess_return"):
+               target: str = "excess_return",
+               objective: str = "regression",
+               train_group: np.ndarray = None,
+               val_group: np.ndarray = None):
     if model_type == "lightgbm":
         if not HAS_LIGHTGBM:
             raise ImportError("lightgbm not installed")
-        train_data = lgb.Dataset(X_train, label=y_train)
-        valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
-        params = {
-            "objective": "regression",
-            "metric": "rmse",
-            "boosting_type": "gbdt",
-            "learning_rate": 0.05,
-            "num_leaves": 31,
-            "feature_fraction": 0.8,
-            "bagging_fraction": 0.8,
-            "bagging_freq": 5,
-            "verbose": -1,
-            "seed": 42,
-        }
+        if objective == "lambdarank":
+            train_data = lgb.Dataset(X_train, label=y_train, group=train_group)
+            valid_data = lgb.Dataset(X_val, label=y_val, group=val_group, reference=train_data)
+            params = {
+                "objective": "lambdarank",
+                "metric": "ndcg",
+                "ndcg_eval_at": [5, 10, 20],
+                "boosting_type": "gbdt",
+                "learning_rate": 0.05,
+                "num_leaves": 31,
+                "feature_fraction": 0.8,
+                "bagging_fraction": 0.8,
+                "bagging_freq": 5,
+                "verbose": -1,
+                "seed": 42,
+            }
+        else:
+            train_data = lgb.Dataset(X_train, label=y_train)
+            valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+            params = {
+                "objective": "regression",
+                "metric": "rmse",
+                "boosting_type": "gbdt",
+                "learning_rate": 0.05,
+                "num_leaves": 31,
+                "feature_fraction": 0.8,
+                "bagging_fraction": 0.8,
+                "bagging_freq": 5,
+                "verbose": -1,
+                "seed": 42,
+            }
         model = lgb.train(
             params,
             train_data,
@@ -88,6 +121,8 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
     elif model_type == "xgboost":
         if not HAS_XGBOOST:
             raise ImportError("xgboost not installed")
+        if objective == "lambdarank":
+            raise ValueError("lambdarank not supported for xgboost in this trainer")
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dval = xgb.DMatrix(X_val, label=y_val)
         params = {
@@ -115,7 +150,8 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
 def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
                          train_window_months: int = 12,
                          model_type: str = "lightgbm",
-                         target: str = "excess_return") -> pd.DataFrame:
+                         target: str = "excess_return",
+                         objective: str = "regression") -> pd.DataFrame:
     """
     滚动训练 + walk-forward 预测。
 
@@ -139,16 +175,26 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
 
         # 训练/验证切分：训练月最后一个月作为验证
         val_month = train_months[-1]
-        tr_df = train_df[train_df["year_month"] != val_month]
-        val_df = train_df[train_df["year_month"] == val_month]
+        tr_df = train_df[train_df["year_month"] != val_month].sort_values("date")
+        val_df = train_df[train_df["year_month"] == val_month].sort_values("date")
 
         X_tr = tr_df[feature_cols].values
-        y_tr = tr_df[target].values
         X_val = val_df[feature_cols].values
-        y_val = val_df[target].values
+
+        if objective == "lambdarank":
+            y_tr = _make_rank_label(tr_df, target)
+            y_val = _make_rank_label(val_df, target)
+        else:
+            y_tr = tr_df[target].values
+            y_val = val_df[target].values
+
+        kwargs = {"model_type": model_type, "target": target, "objective": objective}
+        if objective == "lambdarank":
+            kwargs["train_group"] = _compute_group_counts(tr_df)
+            kwargs["val_group"] = _compute_group_counts(val_df)
 
         try:
-            model = train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols, model_type=model_type, target=target)
+            model = train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs)
         except Exception as e:
             print(f"[model_trainer] train failed for {test_month}: {e}")
             continue
@@ -235,6 +281,8 @@ def main():
     parser.add_argument("--train-end", default="20241231", help="For split mode")
     parser.add_argument("--train-window-months", type=int, default=12)
     parser.add_argument("--target", choices=["excess_return", "stock_return"], default="excess_return")
+    parser.add_argument("--objective", choices=["regression", "lambdarank"], default="regression",
+                        help="训练目标：回归 或 LambdaRank（仅 LightGBM）")
     parser.add_argument("--dataset", default=None, help="Path to parquet dataset (default: memory/dataset/features_h{horizon}.parquet)")
     args = parser.parse_args()
 
@@ -246,8 +294,9 @@ def main():
         pred_df = walk_forward_predict(df, feature_cols,
                                        train_window_months=args.train_window_months,
                                        model_type=args.model_type,
-                                       target=args.target)
-        output_name = f"predictions_h{args.horizon}_walkforward_{args.target}.parquet"
+                                       target=args.target,
+                                       objective=args.objective)
+        output_name = f"predictions_h{args.horizon}_walkforward_{args.target}_{args.objective}.parquet"
     else:
         pred_df, model = simple_split_predict(df, feature_cols,
                                               train_end=args.train_end,

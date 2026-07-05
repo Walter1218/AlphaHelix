@@ -131,15 +131,21 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
     df["date"] = pd.to_datetime(df["date"])
     dates = sorted(df["date"].unique())
 
-    # 预热收盘价缓存：覆盖回测区间所有交易日
+    # 预热收盘价缓存：覆盖回测区间所有交易日（若已缓存则跳过）
     if dates:
         start_cache = dates[0].strftime("%Y%m%d")
         end_cache = (dates[-1] + pd.Timedelta(days=30)).strftime("%Y%m%d")
         cal = get_trade_calendar("SSE", start_cache, end_cache)
         trade_dates = pd.to_datetime(cal[cal["is_open"].astype(int) == 1]["cal_date"])
-        print(f"[portfolio_backtest] Warming close price cache for {len(trade_dates)} trade dates...")
-        _warm_close_cache(trade_dates)
-        print(f"[portfolio_backtest] Cache ready: {len(_close_cache)} price points")
+        needed = {d.strftime("%Y%m%d") for d in trade_dates}
+        cached = {d for d, _ in _close_cache.keys()}
+        missing = needed - cached
+        if missing:
+            print(f"[portfolio_backtest] Warming close price cache for {len(missing)} missing trade dates...")
+            _warm_close_cache([pd.to_datetime(d) for d in sorted(missing)])
+            print(f"[portfolio_backtest] Cache ready: {len(_close_cache)} price points")
+        else:
+            print(f"[portfolio_backtest] Using existing cache: {len(_close_cache)} price points")
 
     nav = 1.0
     cash = 1.0

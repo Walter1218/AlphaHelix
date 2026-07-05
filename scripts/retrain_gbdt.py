@@ -16,7 +16,10 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from model_trainer import load_dataset, get_feature_cols, train_gbdt, save_model
+from model_trainer import (
+    load_dataset, get_feature_cols, train_gbdt, save_model,
+    _make_rank_label, _compute_group_counts,
+)
 
 
 def main():
@@ -26,6 +29,8 @@ def main():
     parser.add_argument("--train-end", default=None, help="训练截止日期 YYYYMMDD；默认使用数据集最后一天")
     parser.add_argument("--model-type", choices=["lightgbm", "xgboost"], default="lightgbm")
     parser.add_argument("--target", choices=["excess_return", "stock_return"], default="excess_return")
+    parser.add_argument("--objective", choices=["regression", "lambdarank"], default="regression",
+                        help="训练目标：回归 或 LambdaRank（仅 LightGBM）")
     parser.add_argument("--output-name", default=None, help="模型文件名，默认 gbdt_latest_h{horizon}.{model_type}.txt")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="从训练集中划出验证集的比例")
     args = parser.parse_args()
@@ -48,19 +53,28 @@ def main():
     if n_val < 100:
         n_val = min(100, len(train_df) // 5)
 
-    tr_df = train_df.iloc[:-n_val]
-    val_df = train_df.iloc[-n_val:]
+    tr_df = train_df.iloc[:-n_val].sort_values("date")
+    val_df = train_df.iloc[-n_val:].sort_values("date")
 
     X_tr = tr_df[feature_cols].values
-    y_tr = tr_df[args.target].values
     X_val = val_df[feature_cols].values
-    y_val = val_df[args.target].values
+
+    if args.objective == "lambdarank":
+        y_tr = _make_rank_label(tr_df, args.target)
+        y_val = _make_rank_label(val_df, args.target)
+    else:
+        y_tr = tr_df[args.target].values
+        y_val = val_df[args.target].values
 
     print(f"[retrain_gbdt] Training on {len(train_df)} samples, features={len(feature_cols)}")
-    print(f"[retrain_gbdt] Train={len(tr_df)}, Val={len(val_df)}, target={args.target}")
+    print(f"[retrain_gbdt] Train={len(tr_df)}, Val={len(val_df)}, target={args.target}, objective={args.objective}")
 
-    model = train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols,
-                       model_type=args.model_type, target=args.target)
+    kwargs = {"model_type": args.model_type, "target": args.target, "objective": args.objective}
+    if args.objective == "lambdarank":
+        kwargs["train_group"] = _compute_group_counts(tr_df)
+        kwargs["val_group"] = _compute_group_counts(val_df)
+
+    model = train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs)
 
     model_dir = Path("memory/models")
     model_dir.mkdir(parents=True, exist_ok=True)

@@ -133,14 +133,18 @@ class GBDTScorePredictor:
 
 
 def find_latest_model(model_dir: Path = Path("memory/models"), horizon: int = 10,
-                      target: str = "excess_return", model_type: str = "lightgbm") -> Optional[Path]:
+                      target: str = "excess_return", model_type: str = "lightgbm",
+                      objective: str = None) -> Optional[Path]:
     """按命名约定查找最新保存的模型。"""
-    candidates = [
+    candidates = []
+    if objective == "lambdarank":
+        candidates.append(model_dir / f"gbdt_latest_h{horizon}_lambdarank.{model_type}.txt")
+    candidates.extend([
+        model_dir / f"gbdt_latest_h{horizon}.{model_type}.txt",
         model_dir / f"gbdt_h{horizon}_split_{target}.{model_type}.txt",
         model_dir / f"gbdt_h{horizon}_walkforward_{target}.{model_type}.txt",
         model_dir / f"gbdt_h{horizon}_latest.{model_type}.txt",
-        model_dir / f"gbdt_latest_h{horizon}.{model_type}.txt",
-    ]
+    ])
     for p in candidates:
         if p.exists():
             return p
