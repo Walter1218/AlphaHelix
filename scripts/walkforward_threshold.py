@@ -48,6 +48,51 @@ def evaluate_threshold_gross(df: pd.DataFrame, q: float, max_positions: int = 20
         return float(np.mean(arr))
 
 
+def _best_q_for_df(df: pd.DataFrame, q_grid: list, max_positions: int, metric: str) -> tuple:
+    """在整个 df 上挑选最优固定分位数 q（用于训练期整体校准）。"""
+    best_q = q_grid[0]
+    best_metric = -np.inf
+    for q in q_grid:
+        m = evaluate_threshold_gross(df, q, max_positions, metric)
+        if m > best_metric:
+            best_metric = m
+            best_q = q
+    return best_q, best_metric
+
+
+def calibrate_threshold_config(pred_df: pd.DataFrame,
+                               max_positions: int = 20,
+                               q_grid: list = None,
+                               metric: str = "avg_excess") -> dict:
+    """
+    在一份 predictions DataFrame 上校准一个固定分位数阈值 q。
+    返回配置 dict，供生产环境对单日预测做阈值过滤。
+    """
+    if q_grid is None:
+        q_grid = [0.50, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90]
+    best_q, best_metric = _best_q_for_df(pred_df, q_grid, max_positions, metric)
+    return {
+        "q": best_q,
+        "metric": metric,
+        "max_positions": max_positions,
+        "train_avg_metric": best_metric,
+    }
+
+
+def apply_quantile_threshold(pred_df: pd.DataFrame, q: float) -> pd.DataFrame:
+    """对单日预测应用固定分位数阈值：低于 q 分位数的得分置为 -inf。"""
+    df = pred_df.copy()
+    for d, g in df.groupby("date"):
+        th = g["predicted"].quantile(q)
+        mask = df["date"] == d
+        df.loc[mask, "predicted"] = np.where(
+            df.loc[mask, "predicted"] >= th,
+            df.loc[mask, "predicted"],
+            -1e9,
+        )
+    return df
+
+
 def calibrate_and_mask(pred_path: str, output_path: str,
                        train_periods: int = 12,
                        max_positions: int = 20,

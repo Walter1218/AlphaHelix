@@ -8,6 +8,7 @@ AlphaHelix GBDT 模型重训练脚本
 """
 import sys
 import os
+import json
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -18,8 +19,9 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model_trainer import (
     load_dataset, get_feature_cols, train_gbdt, save_model,
-    _make_rank_label, _compute_group_counts,
+    _make_rank_label, _compute_group_counts, walk_forward_predict,
 )
+from walkforward_threshold import calibrate_threshold_config
 
 
 def main():
@@ -33,6 +35,8 @@ def main():
                         help="训练目标：回归 或 LambdaRank（仅 LightGBM）")
     parser.add_argument("--output-name", default=None, help="模型文件名，默认 gbdt_latest_h{horizon}.{model_type}.txt")
     parser.add_argument("--val-ratio", type=float, default=0.2, help="从训练集中划出验证集的比例")
+    parser.add_argument("--wf-threshold", action="store_true", help="训练后在训练数据上做 walk-forward 阈值校准")
+    parser.add_argument("--wf-metric", choices=["avg_excess", "win_rate", "sharpe"], default="win_rate")
     args = parser.parse_args()
 
     df = load_dataset(args.horizon, args.dataset)
@@ -95,6 +99,31 @@ def main():
         print(f"[retrain_gbdt] feature importance skipped: {e}")
 
     print(f"\n[retrain_gbdt] Saved model to {model_path}")
+
+    # Walk-forward 阈值校准：在训练数据上跑一遍 walk-forward，得到样本外预测后校准固定 q
+    if args.wf_threshold:
+        try:
+            print("[retrain_gbdt] Calibrating walk-forward threshold on training data...")
+            # 用训练数据自身跑 walk-forward（模拟历史滚动），产生样本外预测
+            wf_pred = walk_forward_predict(
+                train_df, feature_cols,
+                train_window_months=12,
+                model_type=args.model_type,
+                target=args.target,
+                objective=args.objective,
+            )
+            if not wf_pred.empty:
+                cfg = calibrate_threshold_config(
+                    wf_pred, max_positions=20, metric=args.wf_metric
+                )
+                cfg_path = str(model_path).replace(".txt", "_threshold.json")
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, ensure_ascii=False, indent=2)
+                print(f"[retrain_gbdt] Threshold config saved to {cfg_path}: q={cfg['q']}, metric={cfg['metric']}")
+            else:
+                print("[retrain_gbdt] Not enough data for walk-forward threshold calibration")
+        except Exception as e:
+            print(f"[retrain_gbdt] Threshold calibration skipped: {e}")
 
 
 if __name__ == "__main__":

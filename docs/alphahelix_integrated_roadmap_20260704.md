@@ -573,15 +573,31 @@ python scripts/llm_event_filter.py --date 20250402 --ts-codes 000001.SZ,600519.S
 
 > 结论：walk-forward 阈值校准是**有效且未穿越**的改进。用过去 12 期（约 2.5 个月）数据选阈值，胜率从 53.3% 提升到 55.2%，累计超额从 40.2% 提升到 53.2%。训练窗口更长（18/24 期）效果略好，但提升边际递减，12 期作为默认参数已较稳健。
 
+已接入生产链路：
+
+1. `walkforward_gbdt.py` 支持 `--use-wf-threshold --wf-metric win_rate`；
+2. `retrain_gbdt.py` 支持 `--wf-threshold --wf-metric win_rate`，训练后会在模型同目录生成 `_threshold.json`；
+3. `gbdt_predictor.py` 加载模型时自动读取 `_threshold.json`，在 live 选股时对当日候选做同分位数过滤。
+
+当前生产模型 `memory/models/gbdt_latest_h10.lightgbm.txt` 已附带阈值配置：
+```json
+{"q": 0.8, "metric": "win_rate", "max_positions": 20}
+```
+
 用法：
 ```bash
-python scripts/walkforward_threshold.py \
-  --pred memory/predictions/predictions_h10_walkforward_excess_return_regression.parquet \
-  --output memory/predictions/predictions_h10_walkforward_threshold_winrate.parquet \
-  --train-periods 12 --metric win_rate
+# 回测链路
+python scripts/walkforward_gbdt.py \
+  --dataset memory/dataset/features_h10_composite.parquet \
+  --horizon 10 --use-wf-threshold --wf-metric win_rate
 
-python scripts/portfolio_backtest.py \
-  --pred-path memory/predictions/predictions_h10_walkforward_threshold_winrate.parquet
+# 重训练并生成阈值配置
+python scripts/retrain_gbdt.py \
+  --dataset memory/dataset/features_h10_composite.parquet \
+  --horizon 10 --wf-threshold --wf-metric win_rate
+
+# live 选股（predictor 自动加载阈值配置）
+python scripts/screen.py regime 20250402 30 --use-gbdt
 ```
 
 #### 4.6 当前仍未解决

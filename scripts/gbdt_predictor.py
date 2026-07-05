@@ -60,7 +60,9 @@ class GBDTScorePredictor:
 
         self.model_type = model_type
         self.feature_cols = feature_cols
+        self.threshold_q = None
         self._load_meta()
+        self._load_threshold_config()
         self._load_model()
 
     def _load_meta(self):
@@ -83,6 +85,18 @@ class GBDTScorePredictor:
             raise ValueError(f"无法推断模型类型，请提供 model_type。已尝试 meta 路径: {meta_path}")
         if not self.feature_cols:
             raise ValueError(f"无法读取特征列表，请提供 feature_cols。已尝试 meta 路径: {meta_path}")
+
+    def _load_threshold_config(self):
+        """尝试加载同路径的阈值配置文件。"""
+        cfg_path = str(self.model_path).replace(".txt", "_threshold.json")
+        if Path(cfg_path).exists():
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                self.threshold_q = cfg.get("q")
+                print(f"[GBDTScorePredictor] Loaded threshold config: q={self.threshold_q}, metric={cfg.get('metric')}")
+            except Exception as e:
+                print(f"[GBDTScorePredictor] Failed to load threshold config: {e}")
 
     def _load_model(self):
         if self.model_type == "lightgbm":
@@ -123,13 +137,22 @@ class GBDTScorePredictor:
 
         X = df[self.feature_cols].astype(float).values
         if self.model_type == "lightgbm":
-            return self.model.predict(X, num_iteration=self.model.best_iteration)
+            scores = self.model.predict(X, num_iteration=self.model.best_iteration)
         elif self.model_type == "xgboost":
             xgb = _import_xgboost()
             dmatrix = xgb.DMatrix(X)
-            return self.model.predict(dmatrix)
+            scores = self.model.predict(dmatrix)
         else:
             raise ValueError(f"Unsupported model_type: {self.model_type}")
+
+        # 应用 walk-forward 阈值校准：低于分位数的得分置为 -inf
+        if self.threshold_q is not None and "date" in df.columns:
+            scores = scores.copy()
+            for d, g in df.groupby("date"):
+                mask = df["date"] == d
+                th = np.quantile(scores[mask], self.threshold_q)
+                scores[mask & (scores < th)] = -np.inf
+        return scores
 
 
 def find_latest_model(model_dir: Path = Path("memory/models"), horizon: int = 10,

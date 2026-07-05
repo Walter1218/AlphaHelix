@@ -22,6 +22,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model_trainer import load_dataset, get_feature_cols, walk_forward_predict
 from portfolio_backtest import run_backtest as _run_portfolio_backtest
+from walkforward_threshold import calibrate_and_mask
 
 OUTPUT_DIR = Path("memory/eval")
 PRED_DIR = Path("memory/predictions")
@@ -58,7 +59,10 @@ def run_walkforward_gbdt(pred_path: str = None,
                          pred_threshold: float = None,
                          stop_loss_pct: float = None,
                          start_date: str = None,
-                         end_date: str = None) -> dict:
+                         end_date: str = None,
+                         use_wf_threshold: bool = False,
+                         wf_train_periods: int = 12,
+                         wf_metric: str = "win_rate") -> dict:
     if pred_path:
         pred_df = pd.read_parquet(pred_path)
     elif dataset_path:
@@ -72,6 +76,22 @@ def run_walkforward_gbdt(pred_path: str = None,
         pred_df = pred_df[pred_df["date"] >= pd.to_datetime(start_date, format="%Y%m%d")]
     if end_date:
         pred_df = pred_df[pred_df["date"] <= pd.to_datetime(end_date, format="%Y%m%d")]
+
+    # Walk-forward 阈值校准后处理
+    if use_wf_threshold:
+        print(f"[walkforward_gbdt] Applying walk-forward threshold calibration (train_periods={wf_train_periods}, metric={wf_metric})")
+        pred_tmp = PRED_DIR / f"_tmp_pred_for_wfthresh_{datetime.now().strftime('%H%M%S')}.parquet"
+        pred_df.to_parquet(pred_tmp, index=False)
+        masked_path = PRED_DIR / f"predictions_h{horizon}_walkforward_{target}_{model_type}_wfthresh.parquet"
+        calibrate_and_mask(
+            pred_path=str(pred_tmp),
+            output_path=str(masked_path),
+            train_periods=wf_train_periods,
+            max_positions=max_positions,
+            metric=wf_metric,
+        )
+        pred_tmp.unlink(missing_ok=True)
+        pred_df = pd.read_parquet(masked_path)
 
     # 保存临时预测文件供 portfolio_backtest 读取
     tmp_path = PRED_DIR / f"_tmp_walkforward_gbdt_{datetime.now().strftime('%H%M%S')}.parquet"
@@ -99,6 +119,9 @@ def run_walkforward_gbdt(pred_path: str = None,
     summary["slippage"] = slippage
     summary["pred_threshold"] = pred_threshold
     summary["stop_loss_pct"] = stop_loss_pct
+    summary["use_wf_threshold"] = use_wf_threshold
+    summary["wf_train_periods"] = wf_train_periods
+    summary["wf_metric"] = wf_metric
 
     summary_path = OUTPUT_DIR / f"gbdt_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -125,6 +148,12 @@ def main():
     parser.add_argument("--pred-threshold", type=float, default=None)
     parser.add_argument("--stop-loss-pct", type=float, default=None,
                         help="个股止损比例，例如 0.05 表示跌 5% 止损")
+    parser.add_argument("--use-wf-threshold", action="store_true",
+                        help="启用 walk-forward 阈值校准后处理")
+    parser.add_argument("--wf-train-periods", type=int, default=12,
+                        help="阈值校准训练窗口期数")
+    parser.add_argument("--wf-metric", choices=["avg_excess", "win_rate", "sharpe"], default="win_rate",
+                        help="阈值校准优化目标")
     parser.add_argument("--start-date", default=None)
     parser.add_argument("--end-date", default=None)
     args = parser.parse_args()
@@ -148,6 +177,9 @@ def main():
         stop_loss_pct=args.stop_loss_pct,
         start_date=args.start_date,
         end_date=args.end_date,
+        use_wf_threshold=args.use_wf_threshold,
+        wf_train_periods=args.wf_train_periods,
+        wf_metric=args.wf_metric,
     )
 
     print("\n=== Walk-forward GBDT Backtest Summary ===")
