@@ -51,7 +51,7 @@ async function runStockPicking(): Promise<void> {
 
   const prompt = `执行 AlphaHelix 每日选股：
 1. 先读取 ${cwd}/memory/prompt_adaptations/latest.md 获取最新反馈层提示。
-2. 调用 screen_candidates(strategy=regime, trade_date=${today}, top_n=10) 获取候选股。regime 策略会自动按市场状态选择 momentum_value_hybrid / quality_growth / contrarian，并使用 memory/weights/ 中的最新优化权重。
+2. 调用 screen_candidates(strategy=regime, trade_date=${today}, top_n=10, use_gbdt=true) 获取候选股。优先使用 GBDT 模型打分（screen.py 会自动加载 memory/models/gbdt_latest_h10.lightgbm.txt）；若 GBDT 模型缺失或调用失败，则回退到 regime 因子加权策略。
 3. 基于候选股数据生成 Markdown 报告和 JSON 快照。
 4. 用 write 工具将结果写入以下两个绝对路径：
    - ${jsonPath}

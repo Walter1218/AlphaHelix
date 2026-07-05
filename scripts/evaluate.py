@@ -5,6 +5,7 @@ AlphaHelix 选股评估脚本
 import sys
 import os
 import json
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -103,7 +104,7 @@ def max_drawdown(prices: pd.Series) -> float:
     return float(drawdown.min())
 
 
-def evaluate(date: str, horizon: int = 20) -> dict:
+def evaluate(date: str, horizon: int = 20, score_field: str = None) -> dict:
     snapshot = load_snapshot(date)
     picks = snapshot.get("picks", [])
     if not picks:
@@ -113,6 +114,20 @@ def evaluate(date: str, horizon: int = 20) -> dict:
     benchmark_entry = get_close_price(BENCHMARK, date)
     benchmark_exit = get_close_price(BENCHMARK, exit_date)
     benchmark_return = (benchmark_exit / benchmark_entry) - 1
+
+    # 按 score_field 计算权重；缺失或无效时退化为等权
+    weights = None
+    if score_field:
+        raw_scores = []
+        for pick in picks:
+            try:
+                raw_scores.append(float(pick.get(score_field, 0)))
+            except (TypeError, ValueError):
+                raw_scores.append(0.0)
+        raw_scores = np.array(raw_scores)
+        min_score = raw_scores.min()
+        shifted = raw_scores - min_score + 1e-9
+        weights = shifted / shifted.sum()
 
     results = []
     for pick in picks:
@@ -152,15 +167,22 @@ def evaluate(date: str, horizon: int = 20) -> dict:
 
     returns = np.array([r["abs_return"] for r in valid])
     direction_accuracy = float(np.mean(returns > 0))
-    portfolio_return = float(np.mean(returns))
+
+    # 权重：默认等权，若提供 score_field 则按得分加权
+    if weights is not None and len(weights) == len(valid):
+        w = weights[:len(valid)]
+        w = w / w.sum()
+    else:
+        w = np.ones(len(valid)) / len(valid)
+    portfolio_return = float(np.sum(w * returns))
     excess_return = portfolio_return - benchmark_return
 
     top3 = [r for r in results if r.get("rank", 999) <= 3 and "error" not in r]
     top3_hit_rate = float(np.mean([r["abs_return"] > 0 for r in top3])) if top3 else 0.0
 
-    # 组合最大回撤：等权组合净值序列（按交易日对齐）
+    # 组合最大回撤：加权组合净值序列（按交易日对齐）
     portfolio_df = None
-    for r in valid:
+    for i, r in enumerate(valid):
         ts_code = r["ts_code"]
         try:
             series = get_price_series(ts_code, date, exit_date)
@@ -176,7 +198,11 @@ def evaluate(date: str, horizon: int = 20) -> dict:
             continue
 
     if portfolio_df is not None and not portfolio_df.empty:
-        portfolio_values = portfolio_df.mean(axis=1, skipna=True).dropna()
+        # 按权重加权各股票净值
+        weight_map = {r["ts_code"]: w[i] for i, r in enumerate(valid) if r["ts_code"] in portfolio_df.columns}
+        aligned_weights = np.array([weight_map.get(col, 0) for col in portfolio_df.columns])
+        aligned_weights = aligned_weights / aligned_weights.sum()
+        portfolio_values = portfolio_df.multiply(aligned_weights, axis=1).sum(axis=1, skipna=True).dropna()
         portfolio_mdd = max_drawdown(portfolio_values)
     else:
         portfolio_mdd = 0.0
@@ -229,10 +255,16 @@ def evaluate(date: str, horizon: int = 20) -> dict:
 
 
 def main():
-    date = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%Y%m%d")
-    horizon = int(sys.argv[2]) if len(sys.argv) > 2 else 20
+    parser = argparse.ArgumentParser(description="AlphaHelix 选股评估")
+    parser.add_argument("date", nargs="?", default=datetime.now().strftime("%Y%m%d"),
+                        help="选股快照日期 YYYYMMDD")
+    parser.add_argument("horizon", nargs="?", type=int, default=20,
+                        help="持有期交易日数")
+    parser.add_argument("--score-field", default=None,
+                        help="使用指定字段作为权重计算组合收益（例如 gbdt_score）")
+    args = parser.parse_args()
 
-    result = evaluate(date, horizon)
+    result = evaluate(args.date, args.horizon, score_field=args.score_field)
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

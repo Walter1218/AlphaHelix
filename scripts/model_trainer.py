@@ -211,7 +211,9 @@ def save_model(model, feature_cols: list, path: str, model_type: str = "lightgbm
     elif model_type == "xgboost":
         model.save_model(path)
     # 保存特征名
-    meta_path = path.replace(".txt", "_meta.json").replace(".json", "_meta.json")
+    meta_path = path.replace(".txt", "_meta.json")
+    if meta_path == path:
+        meta_path = path + "_meta.json"
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump({"feature_cols": feature_cols, "model_type": model_type}, f, ensure_ascii=False, indent=2)
 

@@ -6,6 +6,7 @@ AlphaHelix 因子初筛脚本
 import sys
 import os
 import json
+import argparse
 import warnings
 from datetime import datetime
 from pathlib import Path
@@ -21,7 +22,20 @@ from _tushare_utils import (
 )
 from market_regime import classify_regime, regime_to_strategy
 from _trace import trace_event
-from online_predictor import RegimeModelManager, features_from_record, DEFAULT_FEATURE_NAMES
+
+# 可选预测器：未安装依赖时不阻塞主流程
+try:
+    from online_predictor import RegimeModelManager, features_from_record, DEFAULT_FEATURE_NAMES
+except Exception:
+    RegimeModelManager = None
+    features_from_record = None
+    DEFAULT_FEATURE_NAMES = []
+
+try:
+    from gbdt_predictor import GBDTScorePredictor, find_latest_model
+except Exception:
+    GBDTScorePredictor = None
+    find_latest_model = None
 
 warnings.filterwarnings("ignore")
 
@@ -805,17 +819,25 @@ def load_dynamic_weights(strategy: str, regime: str = None) -> dict:
 
 def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
            pass1_weights_override: dict = None, pass2_weights_override: dict = None,
-           manager: RegimeModelManager = None, threshold: float = 0.5,
-           max_positions: int = None):
+           manager=None, threshold: float = 0.5,
+           max_positions: int = None,
+           use_gbdt_model: bool = False, gbdt_model_path: str = None,
+           gbdt_threshold: float = None, gbdt_max_positions: int = None,
+           gbdt_predictor: "GBDTScorePredictor" = None):
     """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重和权重覆盖。
 
     Args:
         return_full: 为 True 时返回 (top_n_records, full_df_pass2)，供离线优化使用。
         pass1_weights_override: 可选，直接覆盖 pass1 权重。
         pass2_weights_override: 可选，直接覆盖 pass2 权重。
-        manager: 可选，在线预测模型管理器；提供时优先用于预测上涨概率。
-        threshold: 入选持仓的预测概率阈值。
-        max_positions: 最大持仓数量；None 时使用 top_n。
+        manager: 可选，在线预测模型管理器；提供时用于预测上涨概率（GBDT 不可用时回退）。
+        threshold: 在线预测模型入选持仓的概率阈值。
+        max_positions: 在线预测模型最大持仓数量；None 时使用 top_n。
+        use_gbdt_model: 是否使用 GBDT 模型打分。
+        gbdt_model_path: GBDT 模型文件路径；None 时自动查找最新模型。
+        gbdt_threshold: GBDT 得分阈值，低于该值的股票被过滤。
+        gbdt_max_positions: GBDT 模式最大持仓数量；None 时使用 top_n。
+        gbdt_predictor: 外部已初始化的 GBDT 预测器，避免每次重复加载模型。
     """
     actual_strategy = strategy
     regime_info = None
@@ -846,6 +868,20 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
                        (phase == "pass2" and pass2_weights_override is None):
                         config[phase]["weights"] = dynamic[phase]
 
+    # 按需加载 GBDT 模型（缓存避免重复加载）
+    if use_gbdt_model and GBDTScorePredictor is not None and gbdt_predictor is None:
+        if gbdt_model_path:
+            gbdt_predictor = GBDTScorePredictor(gbdt_model_path)
+        elif find_latest_model is not None:
+            latest = find_latest_model()
+            if latest:
+                gbdt_predictor = GBDTScorePredictor(str(latest))
+            else:
+                print("[screen] No GBDT model found, falling back to total_score.", file=sys.stderr)
+                use_gbdt_model = False
+        else:
+            use_gbdt_model = False
+
     trace_event(
         "screen.start",
         {
@@ -870,11 +906,35 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
     df_pass1 = pass1_screen(df_universe, date, config["pass1"])
     df_pass2 = pass2_enrich(df_pass1, date, config["pass2"])
 
-    # 如果提供了在线预测模型，用模型输出上涨概率替代 total_score
-    regime_for_predictor = regime_info.get("regime") if regime_info else "range"
-    use_predictor = manager is not None and manager.is_ready(regime_for_predictor)
     df_pass2_full = df_pass2.copy()
-    if use_predictor:
+
+    # GBDT 打分优先级最高
+    use_gbdt = False
+    gbdt_scores = None
+    if use_gbdt_model and GBDTScorePredictor is not None:
+        try:
+            gbdt_scores = gbdt_predictor.predict(df_pass2_full)
+            df_pass2_full["gbdt_score"] = gbdt_scores
+            use_gbdt = True
+        except Exception as e:
+            print(f"[screen] GBDT prediction failed: {e}", file=sys.stderr)
+            use_gbdt = False
+
+    # 在线预测模型（实验性，GBDT 不可用时回退）
+    regime_for_predictor = regime_info.get("regime") if regime_info else "range"
+    use_predictor = (
+        not use_gbdt and manager is not None and RegimeModelManager is not None
+        and manager.is_ready(regime_for_predictor)
+    )
+
+    if use_gbdt:
+        df_pass2_filtered = df_pass2_full.copy()
+        if gbdt_threshold is not None:
+            df_pass2_filtered = df_pass2_filtered[df_pass2_filtered["gbdt_score"] >= gbdt_threshold]
+        df_pass2_filtered = df_pass2_filtered.sort_values("gbdt_score", ascending=False)
+        cap_n = gbdt_max_positions if gbdt_max_positions is not None else top_n
+        df_result = cap_sector_weight(df_pass2_filtered, cap_n, max_pct=MAX_SECTOR_PCT)
+    elif use_predictor:
         probs = []
         for _, row in df_pass2_full.iterrows():
             x = features_from_record(row.to_dict(), manager.feature_names)
@@ -899,7 +959,7 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
         return ([], df_pass2_full) if return_full else []
 
     output_cols = [
-        "ts_code", "name", "industry", "total_score", "predicted_up_prob",
+        "ts_code", "name", "industry", "total_score", "gbdt_score", "predicted_up_prob",
         "mom_5", "mom_20", "mom_60", "pe", "pb", "ps", "dv_ratio",
         "roe", "revenue_growth", "profit_growth", "ocf_growth",
         "net_mf_5d", "net_mf_20d", "net_mf_ratio",
@@ -918,8 +978,11 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
                 "candidates": len(records),
                 "pass2_pool_size": len(df_pass2),
                 "use_predictor": use_predictor,
+                "use_gbdt": use_gbdt,
                 "top_picks": [{"ts_code": r["ts_code"], "name": r.get("name"),
-                               "score": r.get("total_score"), "prob": r.get("predicted_up_prob")}
+                               "score": r.get("total_score"),
+                               "gbdt_score": r.get("gbdt_score"),
+                               "prob": r.get("predicted_up_prob")}
                               for r in records[:top_n]],
             },
             "metadata": {
@@ -941,11 +1004,30 @@ def screen_momentum_value_hybrid(date: str, top_n: int = 50) -> list:
 
 
 def main():
-    strategy = sys.argv[1] if len(sys.argv) > 1 else "momentum_value_hybrid"
-    date = sys.argv[2] if len(sys.argv) > 2 else datetime.now().strftime("%Y%m%d")
-    top_n = int(sys.argv[3]) if len(sys.argv) > 3 else 50
+    parser = argparse.ArgumentParser(description="AlphaHelix 选股入口")
+    parser.add_argument("strategy", nargs="?", default="momentum_value_hybrid",
+                        help="策略名或 regime")
+    parser.add_argument("date", nargs="?", default=datetime.now().strftime("%Y%m%d"),
+                        help="选股基准日 YYYYMMDD")
+    parser.add_argument("top_n", nargs="?", type=int, default=50,
+                        help="返回前 N 只")
+    parser.add_argument("--use-gbdt", action="store_true",
+                        help="使用 GBDT 模型打分")
+    parser.add_argument("--gbdt-model-path", default=None,
+                        help="GBDT 模型文件路径（默认自动查找 memory/models/ 下最新模型）")
+    parser.add_argument("--gbdt-threshold", type=float, default=None,
+                        help="GBDT 得分阈值，低于该值的股票被过滤")
+    parser.add_argument("--gbdt-max-positions", type=int, default=None,
+                        help="GBDT 模式最大持仓数量")
+    args = parser.parse_args()
 
-    candidates = screen(date, strategy, top_n)
+    candidates = screen(
+        args.date, args.strategy, args.top_n,
+        use_gbdt_model=args.use_gbdt,
+        gbdt_model_path=args.gbdt_model_path,
+        gbdt_threshold=args.gbdt_threshold,
+        gbdt_max_positions=args.gbdt_max_positions,
+    )
     print(json.dumps(candidates, ensure_ascii=False, indent=2))
 
 
