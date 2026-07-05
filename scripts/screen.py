@@ -37,6 +37,8 @@ except Exception:
     GBDTScorePredictor = None
     find_latest_model = None
 
+from feature_engineering import add_composite_factors
+
 warnings.filterwarnings("ignore")
 
 # 默认值
@@ -754,6 +756,9 @@ def pass2_enrich(df_pass1: pd.DataFrame, date: str, config: dict) -> pd.DataFram
         if col not in df.columns:
             df[col] = np.nan
 
+    # 添加复合因子
+    df = add_composite_factors(df)
+
     # 附加 Phase 2 另类数据特征
     df = add_phase2_features(df, date)
 
@@ -967,6 +972,8 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
         "reversal_score", "sector_momentum", "relative_to_sector",
         "forecast_type_score", "forecast_pchange_mid",
         "express_diluted_roe", "express_diluted_eps",
+        "defensive_quality", "smart_money_per_risk", "quality_growth", "value_quality",
+        "earnings_surprise_momentum", "growth_consistency", "risk_adj_momentum_20",
     ]
     output_cols = [c for c in output_cols if c in df_result.columns]
     records = df_result[output_cols].to_dict(orient="records")

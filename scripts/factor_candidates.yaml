@@ -1,0 +1,21 @@
+expressions:
+  - name: risk_adj_momentum_20
+    expr: mom_20 / (volatility_20 + 1e-9)
+  - name: quality_growth
+    expr: roe * profit_growth
+  - name: smart_money_per_risk
+    expr: net_mf_ratio / (volatility_20 + 1e-9)
+  - name: short_term_reversal_vs_medium
+    expr: mom_5 - mom_60
+  - name: earnings_surprise_momentum
+    expr: (forecast_pchange_mid - mom_20) / (volatility_20 + 1e-9)
+  - name: value_quality
+    expr: dv_ratio * roe
+  - name: sector_relative_moneyflow
+    expr: net_mf_ratio * relative_to_sector
+  - name: growth_consistency
+    expr: revenue_growth * profit_growth * ocf_growth
+  - name: momentum_acceleration
+    expr: mom_5 - mom_20
+  - name: defensive_quality
+    expr: roe / (volatility_20 + 1e-9)

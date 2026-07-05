@@ -123,6 +123,9 @@ def build_numeric_features(df: pd.DataFrame,
             "northbound_net", "northbound_net_5d",
             "top_list_flag", "top_list_net_amount", "top_list_amount_rate", "top_list_turnover_rate", "top_list_pct_change",
             "days_to_disclosure", "days_since_disclosure",
+            # Composite factors
+            "defensive_quality", "smart_money_per_risk", "quality_growth", "value_quality",
+            "earnings_surprise_momentum", "growth_consistency", "risk_adj_momentum_20",
         ]
     # 只保留存在的列
     feature_cols = [c for c in feature_cols if c in df.columns]
@@ -134,6 +137,27 @@ def build_numeric_features(df: pd.DataFrame,
         df = neutralize_features(df, feature_cols)
     if rank:
         df = rank_features(df, feature_cols)
+    return df
+
+
+def add_composite_factors(df: pd.DataFrame) -> pd.DataFrame:
+    """添加 factor_miner 筛选出的高 IC 复合因子。输入应为原始特征 DataFrame。"""
+    df = df.copy()
+    expressions = {
+        "defensive_quality": "roe / (volatility_20 + 1e-9)",
+        "smart_money_per_risk": "net_mf_ratio / (volatility_20 + 1e-9)",
+        "quality_growth": "roe * profit_growth",
+        "value_quality": "dv_ratio * roe",
+        "earnings_surprise_momentum": "(forecast_pchange_mid - mom_20) / (volatility_20 + 1e-9)",
+        "growth_consistency": "revenue_growth * profit_growth * ocf_growth",
+        "risk_adj_momentum_20": "mom_20 / (volatility_20 + 1e-9)",
+    }
+    for name, expr in expressions.items():
+        df[name] = pd.eval(expr, local_dict=df, engine="python")
+        df[name] = df[name].replace([np.inf, -np.inf], np.nan)
+        lo = df[name].quantile(0.01)
+        hi = df[name].quantile(0.99)
+        df[name] = df[name].clip(lo, hi)
     return df
 
 

@@ -93,6 +93,9 @@ def build_dataset(start_date: str, end_date: str, horizon: int,
                 "northbound_net", "northbound_net_5d",
                 "top_list_flag", "top_list_net_amount", "top_list_amount_rate", "top_list_turnover_rate", "top_list_pct_change",
                 "days_to_disclosure", "days_since_disclosure",
+                # Composite factors
+                "defensive_quality", "smart_money_per_risk", "quality_growth", "value_quality",
+                "earnings_surprise_momentum", "growth_consistency", "risk_adj_momentum_20",
             ]]
 
             t_exit = get_trade_date_after(t, days=horizon)
