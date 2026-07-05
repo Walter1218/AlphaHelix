@@ -1,7 +1,7 @@
 # AlphaHelix 整合路线图：量化模型 + LLM 双引擎
 
 > 文档日期：2026-07-05  
-> 状态：Phase 1 ✅ 已完成；Phase 2 ✅ 已完成但未达提升目标；Phase 3 ✅ 已完成但未达提升目标；Phase 4 🚧 待启动  
+> 状态：Phase 1 ✅ 已完成；Phase 2 ✅ 已完成但未达提升目标；Phase 3 ✅ 已完成但未达提升目标；Phase 4 ✅ 已初步迭代（因子生成、宏观择时、事件过滤已实验），真实文本数据源与 memory_search 仍阻塞  
 > 目标：把传统量化 ML 与 LLM 能力整合成一套可验证、可进化的 A 股选股系统
 
 ---
@@ -449,16 +449,91 @@ python scripts/factor_agent.py \
 - 外部公告/新闻 API（财联社、东方财富、巨潮资讯网）；或
 - 本地维护的历史新闻语料库。
 
-### 🚧 Phase 4：生产化与下一步（2~3 周）
+### ✅ Phase 4 第一轮迭代：生产化尝试（2026-07-05）
 
-1. **修复 `memory_search`**，启用 RAG 历史经验复用；
-2. **接入真实文本/事件数据源**，让 LLM 风控过滤器生效；
-3. **改进 factor_agent**：
-   - 限制只使用原始列生成因子；
-   - 增加 walk-forward 特征选择，避免样本内过拟合；
-4. **宏观/另类数据不再直接堆入截面模型**，改为：
-   - 宏观择时（空仓/减仓）信号；
-   - 事件触发式增强/过滤（如 `disclosure_near` 单独作为事件策略）。
+已完成 1、3、4 的初步实验，2 仍受数据源限制。
+
+#### 4.1 改进 factor_agent（已完成）
+
+新增 `factor_agent.py` v2：
+- `--exclude-composites`：强制只用原始列；
+- `--orthogonal`：剔除与现有特征平均截面 rank 相关度 > 0.85 的因子；
+- `--min-icir` / `--min-positive-ic-ratio`：稳定性筛选；
+- `--append-to-dataset`：自动生成带新因子的数据集。
+
+运行结果：
+```bash
+python scripts/factor_agent.py \
+  --prompt "Generate cross-sectional A-share alpha factors from raw price, fundamental, and flow features" \
+  --dataset memory/dataset/features_h10_composite.parquet \
+  --horizon 10 --exclude-composites --orthogonal --second-gen \
+  --ic-threshold 0.03 --min-icir 0.5 --min-positive-ic-ratio 0.55 --max-avg-corr 0.85 \
+  --append-to-dataset memory/dataset/features_h10_composite_llm_v2.parquet
+```
+
+筛选出 18 个稳定且相对独立的因子（全部基于原始列），top 3：
+
+| 因子 | 表达式 | 样本内 IC | ICIR |
+|---|---|---|---|
+| llm_top1 | `(roe * net_mf_ratio / (volatility_20 + 1e-9)) * (relative_strength * dv_ratio)` | +0.1007 | +4.46 |
+| llm_top2 | `(roe * net_mf_ratio / (volatility_20 + 1e-9)) + (relative_strength * dv_ratio)` | +0.0990 | +4.39 |
+| llm_top3 | `((mom_20 + forecast_pchange_mid) / (volatility_20 + 1e-9)) * (relative_strength * dv_ratio)` | +0.0913 | +3.93 |
+
+**但 walk-forward 效果（20 只等权，扣成本）**：
+
+| 模型 | 平均超额 | 累计超额 | 胜率 | Top20 命中率 |
+|---|---|---|---|---|
+| composite 基线 | **+0.29%** | **+40.2%** | **53.3%** | 48.5% |
+| + top 3 LLM 因子 | +0.14% | +16.2% | **55.2%** | 46.7% |
+| + 18 个 LLM 因子 | +0.10% | +10.7% | 46.7% | 46.4% |
+
+> 结论：LLM 生成的因子样本内 IC 很高，但进入 GBDT 后没有提升收益，反而稀释了原组合。top 3 虽然把胜率提到 55.2%，但平均超额和累计超额都明显下降。说明：
+> - 这些因子与现有 composite 因子存在信息重叠；
+> - 高样本内 IC 不等于 walk-forward 增量；
+> - 需要更严格的**样本外特征选择**（真正用滚动验证集筛选），而不是全样本 IC 筛选。
+
+#### 4.2 宏观择时（已完成）
+
+新增 `scripts/apply_market_timing.py`：
+- 用 `northbound_net_20d_zscore` 和 `margin_change_5d` 构建 `regime_score ∈ [-1, 1]`；
+- `position_scale = clip(1 + regime_score, 0, 1)`；
+- 当宏观信号负面时自动减仓/空仓。
+
+**近似绩效（未扣成本）**：
+
+| | 平均超额 | 累计超额 | 胜率 |
+|---|---|---|---|
+| composite 基线 | 0.68% | 89.1% | 60.4% |
+| + 宏观择时 | 0.71% | 98.3% | 60.4% |
+
+> 结论：宏观择时带来少量**毛收益提升**（累计 +9.2%），但胜率不变。若扣除交易成本，优势会缩小。可作为一种风险缓释手段，但不足以突破胜率瓶颈。
+
+#### 4.3 事件过滤/增强（已完成）
+
+新增 `scripts/apply_event_filter.py`：
+- 基于 `disclosure_near` / `disclosure_very_near` / `since_disclosure_lt10` 做事件 overlay；
+- 测试 `strict`（只选事件股）和 `prefer`（优先事件股）。
+
+结果：
+- `strict` 模式下，top20 候选中几乎没有事件标志股票，组合为空；
+- `prefer` 模式退化为 baseline；
+- 事件特征未被 GBDT 选为重要信号，单独作为选股条件无增量。
+
+> 结论：`disclosure` 类特征在这个窗口内不稳定，不适合作为独立选股条件。
+
+#### 4.4 当前仍未解决
+
+1. **真实文本/事件数据源**：Tushare `news` / `major_news` 无权限，`llm_event_filter.py` 无法生效；
+2. **`memory_search`**：HelixAgent 服务端报错，需等官方修复或自建本地 RAG。
+
+### 🚧 Phase 4 下一步（可选）
+
+1. **更严格的 walk-forward 特征选择**：
+   - 每期只用训练集 IC 筛选因子，在验证集上评估，最后才进入测试集；
+   - 或先用 Lasso 在训练集上筛选，再交给 GBDT。
+2. **把宏观择时接入真实回测**：在 `portfolio_backtest.py` 中实现 `position_multiplier`，扣成本后看净收益。
+3. **接入外部新闻/公告 API**：让 `llm_event_filter.py` 真正产生文本信号。
+4. **尝试多头/空头分离或行业中性**：看是否因为某些行业偏离导致胜率瓶颈。
 
 ### 🚧 Phase 5：监控与告警（1~2 周）
 
