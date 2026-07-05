@@ -521,9 +521,38 @@ python scripts/factor_agent.py \
 
 > 结论：`disclosure` 类特征在这个窗口内不稳定，不适合作为独立选股条件。
 
-#### 4.4 当前仍未解决
+#### 4.4 真实文本/事件数据源（已打通 AKShare）
 
-1. **真实文本/事件数据源**：Tushare `news` / `major_news` 无权限，`llm_event_filter.py` 无法生效；
+新增 `scripts/akshare_event_risk.py`，用 AKShare 抓取个股公告：
+- 数据源：`ak.stock_individual_notice_report`（东方财富个股公告，支持历史日期区间）；
+- 抓取范围：取每期 top-20 候选中出现频率最高的 80 只股票，覆盖 **61.2%** 的 top-20 持仓槽位；
+- 风险打分：公告标题关键词规则（负面 - 正面）；
+- 过滤：剔除 event_risk_score >= 2 的股票，用后续低分股票补齐。
+
+**回测结果（gross，等权 top-20）**：
+
+| | 平均超额 | 累计超额 | 胜率 |
+|---|---|---|---|
+| composite 基线 | 0.68% | 89.1% | 60.4% |
+| + AKShare 公告风险过滤 | 0.68% | 90.4% | 60.4% |
+
+> 结论：公告风险过滤带来极小幅的毛收益提升（累计 +1.3%），因为 top-20 股票里只有 **2.1%** 触发了高风险公告。这说明 GBDT 本身已经倾向于避开问题股；公告过滤更像是一个“尾部保险”，不是 alpha 来源。
+
+同时更新了 `scripts/llm_event_filter.py`：
+- 优先用 AKShare 拉公告；
+- 无 OPENAI_API_KEY 时自动使用规则关键词打分；
+- 保留 LLM 接口，配置 API 后可做更 nuanced 的语义判断。
+
+实测：
+```bash
+python scripts/llm_event_filter.py --date 20250402 --ts-codes 000001.SZ,600519.SH,300125.SZ --lookback-days 10 --risk-threshold 2
+```
+- `300125.SZ`（*ST 美晨）被识别为高风险，分数 10.0；
+- 平安银行、贵州茅台为中性 0.0。
+
+#### 4.5 当前仍未解决
+
+1. **更大规模的 AKShare 回填**：80 只高频股票只能覆盖 61% 持仓，若要全覆盖 344 只 unique top-20 股票，抓取时间需 20~30 分钟，需改为离线批量任务或购买更稳定数据源；
 2. **`memory_search`**：HelixAgent 服务端报错，需等官方修复或自建本地 RAG。
 
 ### 🚧 Phase 4 下一步（可选）

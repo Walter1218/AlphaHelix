@@ -1,15 +1,14 @@
 """
-LLM 事件/舆情过滤器（ scaffold ）
+LLM / 规则 事件风险过滤器
 
-功能：对选股结果中的 top-k 候选，基于最近一段时间的新闻/公告/龙虎榜席位，
-用 LLM 判断是否存在重大利空或高风险事件，输出一个风险分数（-1~1），
-供下游组合构造时降权或剔除。
+功能：对选股结果中的 top-k 候选，基于最近一段时间的个股公告标题，
+用 LLM（若配置了 OPENAI_API_KEY）或规则关键词判断是否存在重大利空或高风险事件，
+输出一个风险分数，供下游组合构造时降权或剔除。
 
-当前限制：
-- Tushare 免费/基础版通常没有个股新闻接口；如调用失败则返回中性分。
-- 真正发挥作用需要接入可稳定获取的个股文本数据源（如 Tushare 付费资讯、
-  财联社、东方财富公告、公司公告 PDF 等）。
-- 本脚本先给出可运行的脚手架和接口约定。
+数据来源优先级：
+1. AKShare `stock_individual_notice_report`：免费、可回测、支持历史日期区间；
+2. Tushare `major_news` / `news`：若账号有付费权限；
+3. 未获取到文本时返回中性分。
 
 用法：
   python scripts/llm_event_filter.py --date 20250402 --ts-codes 000001.SZ,600519.SH --lookback-days 10
@@ -17,6 +16,7 @@ LLM 事件/舆情过滤器（ scaffold ）
 import sys
 import os
 import argparse
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict
@@ -27,6 +27,20 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _tushare_utils import get_trade_date_before
 
+NEGATIVE_KEYWORDS = [
+    "诉讼", "仲裁", "处罚", "罚款", "监管", "警示", "立案", "调查", "退市",
+    "亏损", "预亏", "减持", "质押", "违约", "债务", "查封", "冻结", "清算",
+    "破产", "重整", "收购失败", "撤销", "终止", "关注函", "问询函", "监管函",
+    "警示函", "责令改正", "内幕交易", "操纵市场", "行政处罚", "市场禁入",
+    "失信被执行人", "高风险", "重大风险", "业绩下滑",
+]
+
+POSITIVE_KEYWORDS = [
+    "增持", "回购", "预增", "中标", "签约", "重大合同", "收购", "重组",
+    "股权激励", "分红", "派息", "转正", "扭亏", "批复", "核准", "通过",
+    "合作协议", "战略合作", "重大项目",
+]
+
 
 try:
     from _tushare_utils import tushare_call
@@ -34,48 +48,93 @@ except Exception:
     tushare_call = None
 
 
-def _get_news_text(ts_code: str, start_date: str, end_date: str) -> List[str]:
-    """尝试拉取个股新闻标题/摘要。Tushare 接口可能不可用。"""
+try:
+    import akshare as ak
+    HAS_AKSHARE = True
+except Exception:
+    HAS_AKSHARE = False
+
+
+def ts_code_to_symbol(ts_code: str) -> str:
+    return ts_code.split(".")[0]
+
+
+def _heuristic_score(titles: List[str]) -> tuple:
+    """基于标题关键词计算 (risk_score, summary)。"""
+    neg = pos = 0
+    matched = []
+    for t in titles:
+        for kw in NEGATIVE_KEYWORDS:
+            if kw in t:
+                neg += 1
+                matched.append(f"- {kw}")
+        for kw in POSITIVE_KEYWORDS:
+            if kw in t:
+                pos += 1
+                matched.append(f"+ {kw}")
+    score = neg - pos
+    summary = "; ".join(matched[:5]) if matched else ""
+    return score, summary
+
+
+def _get_akshare_announcements(ts_code: str, start_date: str, end_date: str) -> List[str]:
+    """用 AKShare 抓取个股公告标题。"""
+    if not HAS_AKSHARE:
+        return []
+    try:
+        symbol = ts_code_to_symbol(ts_code)
+        df = ak.stock_individual_notice_report(
+            security=symbol, symbol="全部",
+            begin_date=start_date, end_date=end_date,
+        )
+        if df.empty or "公告标题" not in df.columns:
+            return []
+        df["公告日期"] = pd.to_datetime(df["公告日期"], errors="coerce")
+        end_dt = pd.to_datetime(end_date, format="%Y%m%d")
+        df = df[df["公告日期"] <= end_dt]
+        return df["公告标题"].astype(str).tolist()
+    except Exception:
+        return []
+
+
+def _get_tushare_news_text(ts_code: str, start_date: str, end_date: str) -> List[str]:
+    """尝试拉取 Tushare 个股新闻标题/摘要。Tushare 接口可能不可用。"""
     snippets = []
     if tushare_call is None:
         return snippets
 
-    # 1. 尝试 major_news（若账号有权限）
-    try:
-        df = tushare_call("major_news", {"ts_code": ts_code, "start_date": start_date, "end_date": end_date})
-        if not df.empty and "title" in df.columns:
-            for _, row in df.iterrows():
-                text = str(row.get("title", ""))
-                if "content" in row:
-                    text += " " + str(row.get("content", ""))
-                snippets.append(text)
-    except Exception:
-        pass
-
-    # 2. 尝试 company_news（部分付费接口）
-    try:
-        df = tushare_call("news", {"ts_code": ts_code, "start_date": start_date, "end_date": end_date})
-        if not df.empty and "title" in df.columns:
-            for _, row in df.iterrows():
-                text = str(row.get("title", ""))
-                if "content" in row:
-                    text += " " + str(row.get("content", ""))
-                snippets.append(text)
-    except Exception:
-        pass
-
+    for api in ["major_news", "news"]:
+        try:
+            df = tushare_call(api, {"ts_code": ts_code, "start_date": start_date, "end_date": end_date})
+            if not df.empty and "title" in df.columns:
+                for _, row in df.iterrows():
+                    text = str(row.get("title", ""))
+                    if "content" in row:
+                        text += " " + str(row.get("content", ""))
+                    snippets.append(text)
+        except Exception:
+            pass
     return snippets
 
 
 def _score_with_llm(ts_code: str, texts: List[str]) -> Dict:
-    """用 LLM 对新闻文本打分。未配置 API 时返回中性分。"""
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key or not texts:
+    """用 LLM 对新闻文本打分。未配置 API 时使用规则关键词打分。"""
+    if not texts:
         return {
             "ts_code": ts_code,
             "event_risk_score": 0.0,
             "event_summary": "",
-            "has_text": bool(texts),
+            "has_text": False,
+        }
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        score, summary = _heuristic_score(texts)
+        return {
+            "ts_code": ts_code,
+            "event_risk_score": float(score),
+            "event_summary": summary,
+            "has_text": True,
         }
 
     prompt = (
@@ -94,8 +153,7 @@ def _score_with_llm(ts_code: str, texts: List[str]) -> Dict:
             max_tokens=200,
         )
         content = resp.choices[0].message.content
-        # 简单解析 JSON
-        import json, re
+        import json
         m = re.search(r"\{.*?\}", content, re.DOTALL)
         if m:
             obj = json.loads(m.group())
@@ -108,12 +166,21 @@ def _score_with_llm(ts_code: str, texts: List[str]) -> Dict:
     except Exception as e:
         print(f"[llm_event_filter] LLM 评分失败 {ts_code}: {e}")
 
+    score, summary = _heuristic_score(texts)
     return {
         "ts_code": ts_code,
-        "event_risk_score": 0.0,
-        "event_summary": "",
-        "has_text": bool(texts),
+        "event_risk_score": float(score),
+        "event_summary": summary,
+        "has_text": True,
     }
+
+
+def _get_texts(ts_code: str, start_date: str, end_date: str) -> List[str]:
+    """聚合所有文本源。"""
+    texts = _get_akshare_announcements(ts_code, start_date, end_date)
+    if not texts:
+        texts = _get_tushare_news_text(ts_code, start_date, end_date)
+    return texts
 
 
 def filter_event_risk(ts_codes: List[str], date: str, lookback_days: int = 10,
@@ -122,13 +189,13 @@ def filter_event_risk(ts_codes: List[str], date: str, lookback_days: int = 10,
     对候选股票进行事件风险过滤。
     返回 DataFrame：ts_code, event_risk_score, event_summary, has_text, filtered_out。
     """
-    end_date = date
     start = datetime.strptime(date, "%Y%m%d") - timedelta(days=lookback_days + 30)
     start_date = get_trade_date_before(date, days=lookback_days) if lookback_days > 0 else start.strftime("%Y%m%d")
+    end_date = date
 
     rows = []
     for code in ts_codes:
-        texts = _get_news_text(code, start_date, end_date)
+        texts = _get_texts(code, start_date, end_date)
         rec = _score_with_llm(code, texts)
         rec["filtered_out"] = rec["event_risk_score"] >= risk_threshold
         rows.append(rec)
