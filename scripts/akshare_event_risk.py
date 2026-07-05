@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _tushare_utils import get_trade_date_before
 
 import akshare as ak
 
@@ -108,7 +109,7 @@ def score_title(title: str) -> tuple:
 
 def build_event_risk_scores(pred_df: pd.DataFrame, announcements: pd.DataFrame,
                             lookback_days: int = 10) -> pd.DataFrame:
-    """为每个预测样本计算事件风险分。"""
+    """为每个预测样本计算事件风险分。T 日决策只用 T-1 交易日及之前已发布的公告。"""
     pred_df = pred_df.copy()
     pred_df["date"] = pd.to_datetime(pred_df["date"])
     pred_df["symbol"] = pred_df["ts_code"].apply(ts_code_to_symbol)
@@ -124,18 +125,20 @@ def build_event_risk_scores(pred_df: pd.DataFrame, announcements: pd.DataFrame,
         n_ann=("公告标题", "size"),
     ).reset_index()
 
-    # 为每个预测样本，累加 [date - lookback_days, date] 窗口内的公告
     scores = []
     grouped = daily.groupby("symbol")
     for _, row in pred_df.iterrows():
         sym = row["symbol"]
         d = row["date"]
-        start = d - timedelta(days=lookback_days)
+        # 防止 T 日收盘后公告的 look-ahead：决策日取 T-1 个交易日
+        decision_date_str = get_trade_date_before(d.strftime("%Y%m%d"), days=1)
+        decision_date = pd.to_datetime(decision_date_str)
+        start = decision_date - timedelta(days=lookback_days)
         sub = grouped.get_group(sym) if sym in grouped.groups else pd.DataFrame()
         if sub.empty:
             scores.append({"event_risk_score": 0.0, "event_neg": 0, "event_pos": 0, "event_n": 0})
             continue
-        mask = (sub["公告日期"] >= start) & (sub["公告日期"] <= d)
+        mask = (sub["公告日期"] >= start) & (sub["公告日期"] <= decision_date)
         window = sub[mask]
         neg = int(window["neg_sum"].sum())
         pos = int(window["pos_sum"].sum())

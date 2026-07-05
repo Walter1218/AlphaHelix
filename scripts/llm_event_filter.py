@@ -78,7 +78,7 @@ def _heuristic_score(titles: List[str]) -> tuple:
 
 
 def _get_akshare_announcements(ts_code: str, start_date: str, end_date: str) -> List[str]:
-    """用 AKShare 抓取个股公告标题。"""
+    """用 AKShare 抓取个股公告标题。T 日决策只用 T-1 交易日及之前发布的公告。"""
     if not HAS_AKSHARE:
         return []
     try:
@@ -90,8 +90,10 @@ def _get_akshare_announcements(ts_code: str, start_date: str, end_date: str) -> 
         if df.empty or "公告标题" not in df.columns:
             return []
         df["公告日期"] = pd.to_datetime(df["公告日期"], errors="coerce")
-        end_dt = pd.to_datetime(end_date, format="%Y%m%d")
-        df = df[df["公告日期"] <= end_dt]
+        # 避免 T 日收盘后公告的 look-ahead
+        decision_date_str = get_trade_date_before(end_date, days=1)
+        decision_dt = pd.to_datetime(decision_date_str)
+        df = df[df["公告日期"] <= decision_dt]
         return df["公告标题"].astype(str).tolist()
     except Exception:
         return []
