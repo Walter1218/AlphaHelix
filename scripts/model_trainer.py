@@ -97,7 +97,7 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
                 "verbose": -1,
                 "seed": 42,
             }
-        else:
+        elif objective == "regression":
             train_data = lgb.Dataset(X_train, label=y_train)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
             params = {
@@ -112,6 +112,23 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
                 "verbose": -1,
                 "seed": 42,
             }
+        elif objective == "binary":
+            train_data = lgb.Dataset(X_train, label=y_train)
+            valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+            params = {
+                "objective": "binary",
+                "metric": "auc",
+                "boosting_type": "gbdt",
+                "learning_rate": 0.05,
+                "num_leaves": 31,
+                "feature_fraction": 0.8,
+                "bagging_fraction": 0.8,
+                "bagging_freq": 5,
+                "verbose": -1,
+                "seed": 42,
+            }
+        else:
+            raise ValueError(f"Unsupported objective for lightgbm: {objective}")
         model = lgb.train(
             params,
             train_data,
@@ -126,15 +143,26 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
             raise ValueError("lambdarank not supported for xgboost in this trainer")
         dtrain = xgb.DMatrix(X_train, label=y_train)
         dval = xgb.DMatrix(X_val, label=y_val)
-        params = {
-            "objective": "reg:squarederror",
-            "eval_metric": "rmse",
-            "learning_rate": 0.05,
-            "max_depth": 6,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "seed": 42,
-        }
+        if objective == "binary":
+            params = {
+                "objective": "binary:logistic",
+                "eval_metric": "auc",
+                "learning_rate": 0.05,
+                "max_depth": 6,
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "seed": 42,
+            }
+        else:
+            params = {
+                "objective": "reg:squarederror",
+                "eval_metric": "rmse",
+                "learning_rate": 0.05,
+                "max_depth": 6,
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "seed": 42,
+            }
         model = xgb.train(
             params,
             dtrain,
