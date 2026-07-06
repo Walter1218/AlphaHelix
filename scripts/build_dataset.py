@@ -47,9 +47,13 @@ def get_rebalance_dates(start_date: str, end_date: str, delta_days: int) -> list
 
 def build_dataset(start_date: str, end_date: str, horizon: int,
                   strategy: str = "regime", delta_days: int = 5,
-                  universe_size: int = 200, skip_st_check: bool = True):
+                  universe_size: int = 200, skip_st_check: bool = True,
+                  output_path: str = None):
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = DATASET_DIR / f"features_h{horizon}.parquet"
+    if output_path is None:
+        output_path = DATASET_DIR / f"features_h{horizon}.parquet"
+    else:
+        output_path = Path(output_path)
 
     rebalance_dates = get_rebalance_dates(start_date, end_date, delta_days)
     print(f"[build_dataset] Building dataset for horizon={horizon}, {len(rebalance_dates)} dates")
@@ -166,6 +170,7 @@ def main():
     parser.add_argument("--strategy", default="regime")
     parser.add_argument("--universe-size", type=int, default=200)
     parser.add_argument("--skip-st-check", action="store_true", default=True)
+    parser.add_argument("--output", default=None, help="输出 parquet 路径（默认 memory/dataset/features_h{horizon}.parquet）")
     args = parser.parse_args()
 
     if args.universe_size is not None:
@@ -180,6 +185,7 @@ def main():
         delta_days=args.delta_days,
         universe_size=args.universe_size,
         skip_st_check=args.skip_st_check,
+        output_path=args.output,
     )
 
 

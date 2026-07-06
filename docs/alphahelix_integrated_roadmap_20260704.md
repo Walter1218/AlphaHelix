@@ -1053,6 +1053,38 @@ python scripts/screen.py regime 20250402 30 --use-gbdt
 
 ---
 
+### 12.12 全市场训练实验（2026-07-06）
+
+**问题**：`build_dataset.py` 训练集仅包含 `PASS1_TOP_K=80` 只候选股（由 screen.py pass1 选出），模型从未见过被排除的 4000+ 只股票，存在**训练集选择偏差**。如果 pass1 本身有漏选，模型无法学到正确信号。
+
+**实验设计**：
+- 创建 `scripts/build_full_market_dataset.py`：跳过 pass1/pass2，直接从 daily/daily_basic 构造基础量价/估值特征，覆盖全市场 ~4300 只股票（过滤 ST、换手率、流动性）。
+- 创建 `scripts/build_full_pass1_dataset.py`：执行 pass1（设置 `AH_PASS1_TOP_K=9999`），保留所有 pass1 存活者（~2500-4500 只/期），使用 pass1 特征但跳过 pass2 财务抓取。
+- 对比实验：候选模型（composite 特征，~80 只/期） vs 全市场模型（base 特征，~4300 只/期） vs 全 pass1 模型（pass1 特征，~3000 只/期）。
+
+**实验结果**：
+
+| 数据集 | 行数 | 特征 | Mean IC | 正 IC 比例 | 累计超额 | 胜率 | 说明 |
+|---|---|---|---|---|---|---|---|
+| 候选模型（composite） | 9,181 | 29 | 0.032 | 58.5% | **+43.93%** | **56.2%** | 当前最佳基线 |
+| 全市场 base（recall） | 226,133 | 18 | 0.035 | 62.7% | +8.31% | 48.3% | IC 不错但 top-20 组合弱 |
+| 全 pass1 base | 253,262 | 18 | -0.008 | 50.9% | -18.35% | 51.7% | 模型反转 pass1 信号 |
+
+**分析**：
+- 全市场 base 模型 IC 0.035 + 63% 正 IC，说明截面排序能力存在；但 top-20 组合仅 +8.31%，因为排名靠前的股票多为**微盘/高波动小票**（缺乏 composite 质量信号），交易成本和滑点吃掉收益。
+- 全 pass1 base 模型（加入 pass1_score 特征）训练后预测方向反转，模型学到"pass1 得分越高→未来超额越低"。原因：pass1_score 是 base 特征的线性组合，截面中性化后残差与未来收益的关系可能为负；同时缺乏 composite 特征导致无法区分 pass1 内部质量差异。
+- **结论：仅靠 base 特征（动量/估值/市值/波动率）不足以在全市场分布上产生 alpha。composite 质量信号（roe/profit_growth/defensive_quality 等）是当前模型的核心 alpha 来源，必须从 pass2 获取。**
+
+**下一步**：
+1. 完成全市场 pass2 数据预取（`prefetch_data.py` 已运行，预计 55 分钟）；
+2. 用 `build_dataset.py --universe-size 9999` 构建全 pass1+pass2 数据集（包含 composite 特征）；
+3. 在全 pass2 数据集上训练 GBDT，验证是否能提升性能；
+4. 如果全 pass2 数据集效果不佳，说明选择偏差不是当前瓶颈，瓶颈在于**特征空间**（需要更多独立信号源）。
+
+### 12.13 建议推进顺序（更新后）
+
+---
+
 ## 13. 结论
 
 AlphaHelix 的下一版应该是：

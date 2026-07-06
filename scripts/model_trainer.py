@@ -458,18 +458,26 @@ def main():
     parser.add_argument("--objective", choices=["regression", "lambdarank"], default="regression",
                         help="训练目标：回归 或 LambdaRank（仅 LightGBM）")
     parser.add_argument("--dataset", default=None, help="Path to parquet dataset (default: memory/dataset/features_h{horizon}.parquet)")
+    parser.add_argument("--recall-filters", default=None,
+                        help='召回过滤规则 JSON，例如 {"volatility_20":{"max":0.95},"total_mv":{"min":0.05}}')
     args = parser.parse_args()
 
     df = load_dataset(args.horizon, args.dataset)
     feature_cols = get_feature_cols(df)
     print(f"[model_trainer] Dataset: {len(df)} rows, features: {feature_cols}")
 
+    recall_filters = None
+    if args.recall_filters:
+        recall_filters = json.loads(args.recall_filters)
+        print(f"[model_trainer] Recall filters: {recall_filters}")
+
     if args.mode == "walkforward":
         pred_df = walk_forward_predict(df, feature_cols,
                                        train_window_months=args.train_window_months,
                                        model_type=args.model_type,
                                        target=args.target,
-                                       objective=args.objective)
+                                       objective=args.objective,
+                                       recall_filters=recall_filters)
         output_name = f"predictions_h{args.horizon}_walkforward_{args.target}_{args.objective}.parquet"
     else:
         pred_df, model = simple_split_predict(df, feature_cols,
