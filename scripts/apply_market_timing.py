@@ -20,43 +20,12 @@
 import sys
 import os
 import argparse
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from portfolio_backtest import run_backtest
-
-
-def load_macro_features(pred_df: pd.DataFrame, macro_dataset: str = None) -> pd.DataFrame:
-    """加载宏观特征并与预测表按 date 合并。"""
-    if macro_dataset and Path(macro_dataset).exists():
-        df = pd.read_parquet(macro_dataset)
-    else:
-        raise FileNotFoundError(f"Macro dataset not found: {macro_dataset}")
-
-    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y%m%d")
-    pred_df["date"] = pd.to_datetime(pred_df["date"]).dt.strftime("%Y%m%d")
-
-    macro_cols = ["date", "margin_total_balance", "margin_change_5d", "margin_change_20d",
-                  "northbound_net_today", "northbound_net_5d_sum", "northbound_net_20d_sum",
-                  "northbound_net_20d_zscore", "northbound_net_5d_vs_20d"]
-    macro_cols = [c for c in macro_cols if c in df.columns]
-    macro = df[macro_cols].drop_duplicates(subset=["date"])
-    return pred_df.merge(macro, on="date", how="left")
-
-
-def compute_regime_score(row: pd.Series) -> float:
-    """基于北向和融资融券计算 -1~1 的 regime 分数。"""
-    nb = row.get("northbound_net_20d_zscore", 0)
-    margin = row.get("margin_change_5d", 0)
-
-    # 标准化到 [-1, 1]
-    nb_score = np.clip(nb / 2.0, -1, 1) if pd.notna(nb) else 0.0
-    margin_score = np.clip(margin / 0.05, -1, 1) if pd.notna(margin) else 0.0
-
-    return 0.6 * nb_score + 0.4 * margin_score
+from macro_timing import load_macro_features, compute_regime_score
 
 
 def apply_timing(pred_path: str, macro_dataset: str, max_positions: int = 20,

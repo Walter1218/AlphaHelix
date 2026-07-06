@@ -65,7 +65,9 @@ def run_walkforward_gbdt(pred_path: str = None,
                          wf_metric: str = "win_rate",
                          weight_scheme: str = "equal",
                          max_sector_weight: float = 1.0,
-                         neutralize_market_cap: bool = False) -> dict:
+                         neutralize_market_cap: bool = False,
+                         macro_dataset: str = None,
+                         macro_regime_threshold: float = None) -> dict:
     if pred_path:
         pred_df = pd.read_parquet(pred_path)
     elif dataset_path:
@@ -112,6 +114,8 @@ def run_walkforward_gbdt(pred_path: str = None,
         stop_loss_pct=stop_loss_pct,
         weight_scheme=weight_scheme,
         neutralize_market_cap=neutralize_market_cap,
+        macro_dataset=macro_dataset,
+        macro_regime_threshold=macro_regime_threshold,
     )
     tmp_path.unlink(missing_ok=True)
 
@@ -131,6 +135,7 @@ def run_walkforward_gbdt(pred_path: str = None,
     summary["weight_scheme"] = weight_scheme
     summary["max_sector_weight"] = max_sector_weight
     summary["neutralize_market_cap"] = neutralize_market_cap
+    summary["macro_dataset"] = macro_dataset
 
     summary_path = OUTPUT_DIR / f"gbdt_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -172,6 +177,10 @@ def main():
                         help="行业市值权重上限，例如 0.4 表示单行业不超过 40%；1.0 表示不启用")
     parser.add_argument("--neutralize-market-cap", action="store_true",
                         help="选股前对预测得分做市值中性化（截面回归去除 log(总市值) 暴露）")
+    parser.add_argument("--macro-dataset", type=str, default=None,
+                        help="包含宏观特征（margin/northbound）的数据集路径，用于宏观择时仓位缩放")
+    parser.add_argument("--macro-regime-threshold", type=float, default=None,
+                        help="宏观 regime 阈值，当 regime_score <= 阈值时空仓；未指定时使用连续缩放")
     args = parser.parse_args()
 
     if not args.pred_path and not args.dataset:
@@ -199,6 +208,8 @@ def main():
         weight_scheme=args.weight_scheme,
         max_sector_weight=args.max_sector_weight,
         neutralize_market_cap=args.neutralize_market_cap,
+        macro_dataset=args.macro_dataset,
+        macro_regime_threshold=args.macro_regime_threshold,
     )
 
     print("\n=== Walk-forward GBDT Backtest Summary ===")

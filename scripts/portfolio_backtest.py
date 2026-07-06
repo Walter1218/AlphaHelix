@@ -23,6 +23,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from evaluate import get_close_price
 from _tushare_utils import tushare_call, get_trade_calendar, get_trade_date_before
+from macro_timing import compute_position_scales
 
 # 全市场每日收盘价缓存，避免反复加载
 _close_cache: dict = {}
@@ -317,10 +318,22 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
                  commission=0.0002, stamp_tax=0.001, slippage=0.001,
                  pred_threshold=None, stop_loss_pct=None,
                  weight_scheme: str = "equal",
-                 neutralize_market_cap: bool = False):
+                 neutralize_market_cap: bool = False,
+                 macro_dataset: str = None,
+                 macro_regime_threshold: float = None):
     df = pd.read_parquet(pred_path)
     df["date"] = pd.to_datetime(df["date"])
     dates = sorted(df["date"].unique())
+
+    # 宏观择时仓位缩放
+    date_to_scale = {}
+    if macro_dataset:
+        try:
+            date_to_scale = compute_position_scales(df, macro_dataset,
+                                                    regime_threshold=macro_regime_threshold)
+            print(f"[portfolio_backtest] Macro timing loaded: {len(date_to_scale)} dates with scale info")
+        except Exception as e:
+            print(f"[portfolio_backtest] Failed to load macro timing: {e}")
 
     # 预热收盘价缓存：覆盖回测区间所有交易日（若已缓存则跳过）
     if dates:
@@ -402,6 +415,7 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
 
         valid_codes = [c for c in new_holdings if c in new_prices]
         n = len(valid_codes)
+        scale = date_to_scale.get(t_str, 1.0)
         weights = {}
         if n > 0:
             weights = _compute_weights(
@@ -413,7 +427,7 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
                 if code not in new_prices:
                     continue
                 weight = weights.get(code, 1.0 / n)
-                target_value = portfolio_value * weight
+                target_value = portfolio_value * scale * weight
                 old_value = positions.get(code, 0) * new_prices[code]
                 delta = target_value - old_value
                 if delta > 0:
@@ -501,6 +515,8 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
         "avg_stop_hits": float(np.mean([r["stop_hits"] for r in records])),
         "max_sector_weight": max_sector_weight,
         "neutralize_market_cap": neutralize_market_cap,
+        "macro_dataset": macro_dataset,
+        "avg_position_scale": float(np.mean([date_to_scale.get(r["date"], 1.0) for r in records])) if date_to_scale else 1.0,
         "records": records,
     }
     return summary
@@ -515,6 +531,10 @@ def main():
                         help="行业市值权重上限，例如 0.4 表示单行业不超过 40%；1.0 表示不启用")
     parser.add_argument("--neutralize-market-cap", action="store_true",
                         help="选股前对预测得分做市值中性化（截面回归去除 log(总市值) 暴露）")
+    parser.add_argument("--macro-dataset", type=str, default=None,
+                        help="包含宏观特征（margin/northbound）的数据集路径，用于宏观择时仓位缩放")
+    parser.add_argument("--macro-regime-threshold", type=float, default=None,
+                        help="宏观 regime 阈值，当 regime_score <= 阈值时空仓；未指定时使用连续缩放")
     parser.add_argument("--commission", type=float, default=0.0002)
     parser.add_argument("--stamp-tax", type=float, default=0.001)
     parser.add_argument("--slippage", type=float, default=0.001)
@@ -538,6 +558,8 @@ def main():
         stop_loss_pct=args.stop_loss_pct,
         weight_scheme=args.weight_scheme,
         neutralize_market_cap=args.neutralize_market_cap,
+        macro_dataset=args.macro_dataset,
+        macro_regime_threshold=args.macro_regime_threshold,
     )
 
     print("\n=== Portfolio Backtest Summary ===")
