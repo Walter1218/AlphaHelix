@@ -32,6 +32,7 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _trace import trace_event, new_run
+import macro_timing
 
 DATASET_DIR = Path("memory/dataset")
 MODEL_DIR = Path("memory/models")
@@ -210,6 +211,126 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
         pred_df["predicted"] = preds
         pred_df["train_end_month"] = str(train_months[-1])
         all_preds.append(pred_df)
+
+    if not all_preds:
+        return pd.DataFrame()
+    return pd.concat(all_preds, ignore_index=True)
+
+
+def assign_regime(df: pd.DataFrame, macro_dataset: str,
+                  pos_thr: float = 0.3, neg_thr: float = -0.3) -> pd.DataFrame:
+    """为每个样本按当日宏观状态打上 regime 标签。"""
+    df = df.copy()
+    df = macro_timing.load_macro_features(df, macro_dataset)
+    df["regime_score"] = df.apply(macro_timing.compute_regime_score, axis=1)
+    conditions = [df["regime_score"] > pos_thr, df["regime_score"] < neg_thr]
+    choices = ["strong", "weak"]
+    df["regime"] = np.select(conditions, choices, default="neutral")
+    df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+    return df
+
+
+def _train_model_for_fold(tr_df, val_df, feature_cols, model_type, target, objective):
+    """辅助函数：为当前 fold 训练一个模型（支持回归/LambdaRank）。"""
+    X_tr = tr_df[feature_cols].values
+    X_val = val_df[feature_cols].values
+
+    if objective == "lambdarank":
+        y_tr = _make_rank_label(tr_df, target)
+        y_val = _make_rank_label(val_df, target)
+    else:
+        y_tr = tr_df[target].values
+        y_val = val_df[target].values
+
+    kwargs = {"model_type": model_type, "target": target, "objective": objective}
+    if objective == "lambdarank":
+        kwargs["train_group"] = _compute_group_counts(tr_df)
+        kwargs["val_group"] = _compute_group_counts(val_df)
+
+    return train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs)
+
+
+def walk_forward_predict_by_regime(df: pd.DataFrame, feature_cols: list,
+                                   macro_dataset: str,
+                                   train_window_months: int = 12,
+                                   model_type: str = "lightgbm",
+                                   target: str = "excess_return",
+                                   objective: str = "regression",
+                                   pos_thr: float = 0.3,
+                                   neg_thr: float = -0.3,
+                                   min_train_groups: int = 10) -> pd.DataFrame:
+    """
+    按宏观 regime 分模型滚动训练 + walk-forward 预测。
+
+    每个 fold 训练：
+    - 一个全局 fallback 模型；
+    - 每个在训练窗口中出现且样本数足够的 regime（strong/neutral/weak）一个专用模型。
+    预测时根据测试日期的 regime 选择对应模型，缺失则回退到全局模型。
+    """
+    df = assign_regime(df, macro_dataset, pos_thr, neg_thr)
+    df = df.sort_values("date").copy()
+    df["year_month"] = df["date"].dt.to_period("M")
+    months = sorted(df["year_month"].unique())
+
+    all_preds = []
+    for i, test_month in enumerate(months):
+        train_months = months[max(0, i - train_window_months):i]
+        if len(train_months) < 3:
+            continue
+
+        train_df = df[df["year_month"].isin(train_months)]
+        test_df = df[df["year_month"] == test_month]
+        if train_df.empty or test_df.empty:
+            continue
+
+        val_month = train_months[-1]
+
+        # 全局 fallback 模型
+        tr_global = train_df[train_df["year_month"] != val_month].sort_values("date")
+        val_global = train_df[train_df["year_month"] == val_month].sort_values("date")
+        try:
+            global_model = _train_model_for_fold(tr_global, val_global, feature_cols,
+                                                  model_type, target, objective)
+        except Exception as e:
+            print(f"[model_trainer] global model failed for {test_month}: {e}")
+            continue
+
+        # 每个 regime 训练专用模型
+        regime_models = {}
+        for regime in ["strong", "neutral", "weak"]:
+            tr_reg = train_df[(train_df["year_month"] != val_month) &
+                              (train_df["regime"] == regime)].sort_values("date")
+            val_reg = train_df[(train_df["year_month"] == val_month) &
+                               (train_df["regime"] == regime)].sort_values("date")
+            n_groups = tr_reg["date"].nunique()
+            if n_groups < min_train_groups or val_reg.empty:
+                continue
+            try:
+                regime_models[regime] = _train_model_for_fold(
+                    tr_reg, val_reg, feature_cols, model_type, target, objective
+                )
+                print(f"[model_trainer] {test_month} regime={regime}: trained on {n_groups} dates")
+            except Exception as e:
+                print(f"[model_trainer] regime={regime} failed for {test_month}: {e}")
+
+        # 预测：按日期选择对应 regime 模型
+        pred_parts = []
+        for regime, grp in test_df.groupby("regime"):
+            model = regime_models.get(regime, global_model)
+            X_test = grp[feature_cols].values
+            if model_type == "xgboost":
+                dtest = xgb.DMatrix(X_test)
+                preds = model.predict(dtest)
+            else:
+                preds = model.predict(X_test, num_iteration=model.best_iteration)
+            pred_df = grp[["date", "ts_code", "excess_return", "stock_return",
+                           "benchmark_return", "industry", "regime"]].copy()
+            pred_df["predicted"] = preds
+            pred_df["train_end_month"] = str(train_months[-1])
+            pred_parts.append(pred_df)
+
+        if pred_parts:
+            all_preds.append(pd.concat(pred_parts, ignore_index=True))
 
     if not all_preds:
         return pd.DataFrame()
