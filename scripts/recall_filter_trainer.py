@@ -14,10 +14,12 @@ import os
 import argparse
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model_trainer import load_dataset, get_feature_cols, walk_forward_predict
+from _tushare_utils import fetch_disclosure_schedule, get_trade_calendar
 
 PRED_DIR = Path("memory/predictions")
 
@@ -45,6 +47,67 @@ def parse_filters(raw: str) -> dict:
     return filters
 
 
+def _compute_trade_day_diff(trade_dates: list, start: pd.Timestamp, end: pd.Timestamp) -> int:
+    """计算 start 到 end 之间的交易日天数（不含 start，含 end）。"""
+    try:
+        start_idx = trade_dates.index(start.strftime("%Y%m%d"))
+        end_idx = trade_dates.index(end.strftime("%Y%m%d"))
+        return max(0, end_idx - start_idx)
+    except ValueError:
+        return np.nan
+
+
+def apply_disclosure_filter(df: pd.DataFrame, exclude_days: int) -> pd.DataFrame:
+    """
+    剔除未来 exclude_days 个交易日内有财报/季报预约披露的股票。
+
+    基于 Tushare disclosure_date 接口获取预约披露时间表（pre_date），
+    对每只股票计算下一个披露日距离当前决策日有多少个交易日，
+    若 <= exclude_days 则剔除。
+    """
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], format="%Y%m%d")
+
+    years = sorted(df["date"].dt.year.unique().tolist())
+    schedule = fetch_disclosure_schedule(years=years)
+    if schedule.empty or "pre_date" not in schedule.columns:
+        print("[recall_filter_trainer] No disclosure schedule available, skip filter")
+        return df
+
+    schedule = schedule.copy()
+    schedule["pre_date"] = pd.to_datetime(schedule["pre_date"], format="%Y%m%d", errors="coerce")
+    schedule = schedule[schedule["pre_date"].notna()].copy()
+
+    # 获取交易日历
+    start_str = df["date"].min().strftime("%Y%m%d")
+    end_str = (df["date"].max() + pd.Timedelta(days=180)).strftime("%Y%m%d")
+    cal = get_trade_calendar("SSE", start_str, end_str)
+    trade_dates = cal[cal["is_open"].astype(int) == 1]["cal_date"].astype(str).tolist()
+
+    # 为每个 (date, ts_code) 计算下一个披露日的交易日差
+    def get_days(row):
+        code = row["ts_code"]
+        d = row["date"]
+        sub = schedule[schedule["ts_code"] == code]
+        future = sub[sub["pre_date"] > d]
+        if future.empty:
+            return np.nan
+        next_date = future["pre_date"].min()
+        return _compute_trade_day_diff(trade_dates, d, next_date)
+
+    df["days_to_disclosure"] = df.apply(get_days, axis=1)
+
+    # 保留：缺失（无未来披露）或大于 exclude_days 的样本
+    mask = df["days_to_disclosure"].isna() | (df["days_to_disclosure"] > exclude_days)
+    kept = df[mask].copy()
+    n_dropped = len(df) - len(kept)
+    if n_dropped:
+        print(f"[recall_filter_trainer] Disclosure filter dropped {n_dropped} rows "
+              f"({n_dropped/len(df):.1%}) with disclosure within {exclude_days} trade days")
+    kept = kept.drop(columns=["days_to_disclosure"])
+    return kept
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", required=True)
@@ -56,9 +119,13 @@ def main():
                         help="召回过滤规则，例如 roe:0.2:1,volatility_20:0:0.8")
     parser.add_argument("--output-name", default=None,
                         help="输出文件名，默认自动生成")
+    parser.add_argument("--disclosure-exclude-days", type=int, default=None,
+                        help="剔除未来 N 个交易日内有财报/季报预约披露的股票")
     args = parser.parse_args()
 
     df = load_dataset(args.horizon, args.dataset)
+    if args.disclosure_exclude_days is not None:
+        df = apply_disclosure_filter(df, args.disclosure_exclude_days)
     feature_cols = get_feature_cols(df)
     filters = parse_filters(args.filters)
     print(f"[recall_filter_trainer] Filters: {filters}")
