@@ -29,6 +29,9 @@ _close_cache: dict = {}
 # ts_code -> {date: close} 的反向索引，用于快速构造个股时间序列
 _close_by_code: dict = {}
 
+# 每日总市值缓存（来自 daily_basic.total_mv），用于行业权重约束和市值中性化
+_mv_cache: dict = {}
+
 
 def _update_close_index(d: str, ts_code: str, price: float):
     """同步更新全键缓存和按代码索引。"""
@@ -73,6 +76,45 @@ def _get_cached_price_series(ts_code: str, start_date: str, end_date: str) -> pd
     return pd.Series(values).sort_index()
 
 
+def _warm_mv_cache(dates):
+    """预热每日总市值缓存（daily_basic.total_mv）。"""
+    for d in dates:
+        d_str = d.strftime("%Y%m%d") if hasattr(d, "strftime") else str(d)
+        if d_str in _mv_cache:
+            continue
+        try:
+            df = tushare_call("daily_basic", {"trade_date": d_str})
+            if not df.empty:
+                df["ts_code"] = df["ts_code"].astype(str)
+                df["total_mv"] = pd.to_numeric(df["total_mv"], errors="coerce")
+                _mv_cache[d_str] = {
+                    row["ts_code"]: float(row["total_mv"])
+                    for _, row in df.iterrows()
+                    if pd.notna(row["total_mv"])
+                }
+        except Exception:
+            continue
+
+
+def _get_cached_mv(ts_code: str, date: str) -> float:
+    """获取个股某日总市值（亿元），缺失时兜底调用 daily_basic。"""
+    d_str = str(date)
+    code = str(ts_code)
+    mv_map = _mv_cache.get(d_str)
+    if mv_map and code in mv_map:
+        return mv_map[code]
+    try:
+        df = tushare_call("daily_basic", {"ts_code": code, "trade_date": d_str})
+        if not df.empty:
+            mv = float(pd.to_numeric(df["total_mv"], errors="coerce").iloc[0])
+            if pd.notna(mv):
+                _mv_cache.setdefault(d_str, {})[code] = mv
+                return mv
+    except Exception:
+        pass
+    return np.nan
+
+
 def apply_sector_cap(df_day, max_positions, max_sector_pct=0.4):
     """按行业数量做集中度截断。"""
     if df_day.empty or "industry" not in df_day.columns:
@@ -90,6 +132,79 @@ def apply_sector_cap(df_day, max_positions, max_sector_pct=0.4):
             continue
         counts[sec] = counts.get(sec, 0) + 1
         kept.append(row)
+    return pd.DataFrame(kept)
+
+
+def _neutralize_scores_by_market_cap(df_day: pd.DataFrame, date_str: str) -> pd.DataFrame:
+    """
+    用当日截面回归去除预测得分中的市值暴露。
+
+    residual = predicted - (alpha + beta * log(total_mv))
+    返回按 residual 排序后的 df，predicted 列被替换为 residual。
+    """
+    df = df_day.copy()
+    if "total_mv" not in df.columns:
+        df["total_mv"] = df["ts_code"].apply(lambda c: _get_cached_mv(c, date_str))
+    df = df[df["total_mv"].notna() & (df["total_mv"] > 0)].copy()
+    if len(df) < 5:
+        return df
+
+    log_mv = np.log(df["total_mv"].astype(float))
+    y = df["predicted"].astype(float).values
+    x = log_mv.values
+    x_mean = np.nanmean(x)
+    y_mean = np.nanmean(y)
+    cov = np.nanmean((x - x_mean) * (y - y_mean))
+    var = np.nanvar(x)
+    if var <= 1e-12:
+        return df
+    beta = cov / var
+    alpha = y_mean - beta * x_mean
+    df["predicted_raw"] = df["predicted"]
+    df["predicted"] = y - (alpha + beta * x)
+    return df.sort_values("predicted", ascending=False)
+
+
+def apply_sector_weight_cap(df_day, max_positions, max_sector_weight=0.4, date_str=None):
+    """
+    按行业市值权重做集中度截断。
+
+    在按预测得分排序后，贪心选择股票，保证每个行业的总市值权重不超过
+    max_sector_weight。若某只股票加入后会突破行业权重上限，则跳过。
+    """
+    if df_day.empty or "industry" not in df_day.columns:
+        return df_day
+    df_day = df_day.copy()
+    df_day["industry"] = df_day["industry"].fillna("未知")
+
+    # 尝试补充总市值列
+    if "total_mv" not in df_day.columns and date_str is not None:
+        df_day["total_mv"] = df_day["ts_code"].apply(lambda c: _get_cached_mv(c, date_str))
+
+    kept = []
+    sector_mv = {}
+    total_mv = 0.0
+    fallback_used = False
+    for _, row in df_day.iterrows():
+        if len(kept) >= max_positions:
+            break
+        sec = row["industry"]
+        mv = row.get("total_mv", np.nan)
+        if not np.isfinite(mv) or mv <= 0:
+            mv = 1.0
+            fallback_used = True
+        # 预测加入后检查行业权重：允许进入新行业，已有行业不得超过上限
+        new_sector_mv = sector_mv.get(sec, 0.0) + mv
+        new_total_mv = total_mv + mv
+        if sector_mv.get(sec, 0.0) > 0 and new_sector_mv / new_total_mv > max_sector_weight + 1e-9:
+            continue
+        kept.append(row)
+        sector_mv[sec] = new_sector_mv
+        total_mv = new_total_mv
+
+    if kept and fallback_used:
+        # 缺失市值的股票按等权 fallback，对权重约束不精确，仅做提示
+        pass
     return pd.DataFrame(kept)
 
 
@@ -198,9 +313,11 @@ def _compute_weights(day_df: pd.DataFrame, prices: dict, scheme: str = "equal") 
 
 
 def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
+                 max_sector_weight: float = 1.0,
                  commission=0.0002, stamp_tax=0.001, slippage=0.001,
                  pred_threshold=None, stop_loss_pct=None,
-                 weight_scheme: str = "equal"):
+                 weight_scheme: str = "equal",
+                 neutralize_market_cap: bool = False):
     df = pd.read_parquet(pred_path)
     df["date"] = pd.to_datetime(df["date"])
     dates = sorted(df["date"].unique())
@@ -221,6 +338,16 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
         else:
             print(f"[portfolio_backtest] Using existing cache: {len(_close_cache)} price points")
 
+        # 若启用行业市值权重约束或市值中性化，同步预热总市值缓存
+        if max_sector_weight < 1.0 or neutralize_market_cap:
+            mv_needed = needed - set(_mv_cache.keys())
+            if mv_needed:
+                print(f"[portfolio_backtest] Warming market-cap cache for {len(mv_needed)} missing trade dates...")
+                _warm_mv_cache([pd.to_datetime(d) for d in sorted(mv_needed)])
+                print(f"[portfolio_backtest] MV cache ready: {sum(len(v) for v in _mv_cache.values())} entries")
+            else:
+                print(f"[portfolio_backtest] Using existing MV cache: {sum(len(v) for v in _mv_cache.values())} entries")
+
     nav = 1.0
     cash = 1.0
     positions = {}  # ts_code -> shares
@@ -236,7 +363,11 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
         day_df = df[df["date"] == t].sort_values("predicted", ascending=False)
         if pred_threshold is not None:
             day_df = day_df[day_df["predicted"] >= pred_threshold]
+        if neutralize_market_cap:
+            day_df = _neutralize_scores_by_market_cap(day_df, t_str)
         day_df = apply_sector_cap(day_df, max_positions, max_sector_pct)
+        if max_sector_weight < 1.0:
+            day_df = apply_sector_weight_cap(day_df, max_positions, max_sector_weight, date_str=t_str)
         new_holdings = set(day_df["ts_code"].head(max_positions).tolist())
 
         # 计算当前持仓市值（按 t 日收盘价）
@@ -368,6 +499,8 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
         "avg_turnover": float(np.mean([r["turnover"] for r in records])),
         "win_rate_excess": float(np.mean([r["excess_return"] > 0 for r in records])),
         "avg_stop_hits": float(np.mean([r["stop_hits"] for r in records])),
+        "max_sector_weight": max_sector_weight,
+        "neutralize_market_cap": neutralize_market_cap,
         "records": records,
     }
     return summary
@@ -378,6 +511,10 @@ def main():
     parser.add_argument("--pred-path", required=True)
     parser.add_argument("--max-positions", type=int, default=10)
     parser.add_argument("--max-sector-pct", type=float, default=0.4)
+    parser.add_argument("--max-sector-weight", type=float, default=1.0,
+                        help="行业市值权重上限，例如 0.4 表示单行业不超过 40%；1.0 表示不启用")
+    parser.add_argument("--neutralize-market-cap", action="store_true",
+                        help="选股前对预测得分做市值中性化（截面回归去除 log(总市值) 暴露）")
     parser.add_argument("--commission", type=float, default=0.0002)
     parser.add_argument("--stamp-tax", type=float, default=0.001)
     parser.add_argument("--slippage", type=float, default=0.001)
@@ -393,12 +530,14 @@ def main():
         args.pred_path,
         max_positions=args.max_positions,
         max_sector_pct=args.max_sector_pct,
+        max_sector_weight=args.max_sector_weight,
         commission=args.commission,
         stamp_tax=args.stamp_tax,
         slippage=args.slippage,
         pred_threshold=args.pred_threshold,
         stop_loss_pct=args.stop_loss_pct,
         weight_scheme=args.weight_scheme,
+        neutralize_market_cap=args.neutralize_market_cap,
     )
 
     print("\n=== Portfolio Backtest Summary ===")

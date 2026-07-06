@@ -63,7 +63,9 @@ def run_walkforward_gbdt(pred_path: str = None,
                          use_wf_threshold: bool = False,
                          wf_train_periods: int = 12,
                          wf_metric: str = "win_rate",
-                         weight_scheme: str = "equal") -> dict:
+                         weight_scheme: str = "equal",
+                         max_sector_weight: float = 1.0,
+                         neutralize_market_cap: bool = False) -> dict:
     if pred_path:
         pred_df = pd.read_parquet(pred_path)
     elif dataset_path:
@@ -102,12 +104,14 @@ def run_walkforward_gbdt(pred_path: str = None,
         str(tmp_path),
         max_positions=max_positions,
         max_sector_pct=max_sector_pct,
+        max_sector_weight=max_sector_weight,
         commission=commission,
         stamp_tax=stamp_tax,
         slippage=slippage,
         pred_threshold=pred_threshold,
         stop_loss_pct=stop_loss_pct,
         weight_scheme=weight_scheme,
+        neutralize_market_cap=neutralize_market_cap,
     )
     tmp_path.unlink(missing_ok=True)
 
@@ -125,6 +129,8 @@ def run_walkforward_gbdt(pred_path: str = None,
     summary["wf_train_periods"] = wf_train_periods
     summary["wf_metric"] = wf_metric
     summary["weight_scheme"] = weight_scheme
+    summary["max_sector_weight"] = max_sector_weight
+    summary["neutralize_market_cap"] = neutralize_market_cap
 
     summary_path = OUTPUT_DIR / f"gbdt_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(summary_path, "w", encoding="utf-8") as f:
@@ -162,6 +168,10 @@ def main():
     parser.add_argument("--weight-scheme", type=str, default="equal",
                         choices=["equal", "score", "risk_parity", "score_risk"],
                         help="持仓权重方案：equal 等权，score 按预测得分，risk_parity 按波动率倒数，score_risk 结合得分和风险")
+    parser.add_argument("--max-sector-weight", type=float, default=1.0,
+                        help="行业市值权重上限，例如 0.4 表示单行业不超过 40%；1.0 表示不启用")
+    parser.add_argument("--neutralize-market-cap", action="store_true",
+                        help="选股前对预测得分做市值中性化（截面回归去除 log(总市值) 暴露）")
     args = parser.parse_args()
 
     if not args.pred_path and not args.dataset:
@@ -187,6 +197,8 @@ def main():
         wf_train_periods=args.wf_train_periods,
         wf_metric=args.wf_metric,
         weight_scheme=args.weight_scheme,
+        max_sector_weight=args.max_sector_weight,
+        neutralize_market_cap=args.neutralize_market_cap,
     )
 
     print("\n=== Walk-forward GBDT Backtest Summary ===")
