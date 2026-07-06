@@ -176,15 +176,34 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
     return model
 
 
+def _apply_recall_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
+    """
+    应用召回过滤规则。filters 格式：{"col": {"min": 0.2, "max": 0.8}}
+    """
+    if not filters:
+        return df
+    mask = pd.Series(True, index=df.index)
+    for col, bounds in filters.items():
+        if col not in df.columns:
+            continue
+        if "min" in bounds:
+            mask &= df[col] >= bounds["min"]
+        if "max" in bounds:
+            mask &= df[col] <= bounds["max"]
+    return df[mask].copy()
+
+
 def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
                          train_window_months: int = 12,
                          model_type: str = "lightgbm",
                          target: str = "excess_return",
-                         objective: str = "regression") -> pd.DataFrame:
+                         objective: str = "regression",
+                         recall_filters: dict = None) -> pd.DataFrame:
     """
     滚动训练 + walk-forward 预测。
 
     每月用过去 N 个月的数据训练模型，预测下一个月所有样本。
+    若提供 recall_filters，训练与预测只在该召回子集上进行。
     """
     df = df.sort_values("date").copy()
     df["year_month"] = df["date"].dt.to_period("M")
@@ -199,6 +218,12 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
 
         train_df = df[df["year_month"].isin(train_months)]
         test_df = df[df["year_month"] == test_month]
+        if train_df.empty or test_df.empty:
+            continue
+
+        # 应用召回过滤
+        train_df = _apply_recall_filters(train_df, recall_filters)
+        test_df = _apply_recall_filters(test_df, recall_filters)
         if train_df.empty or test_df.empty:
             continue
 
