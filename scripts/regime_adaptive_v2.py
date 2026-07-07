@@ -94,58 +94,51 @@ def select_best_model(regime, regime_performance):
     return 'full_46_equal'  # 默认
 
 
-def precompute_regime_performance(predictions, market_stats):
-    """预计算每个 regime 的最佳模型（用 IC 作为指标）"""
-    regime_performance = {}
+def select_best_model_walkforward(regime, test_month, predictions, market_stats, lookback_months=12):
+    """Walk-forward 选择最佳模型（只用历史数据）"""
+    best_model = None
+    best_ic = -999
     
-    for regime in ['bull', 'bear', 'sideways']:
-        best_model = None
-        best_ic = -999
+    for model_name, pred_df in predictions.items():
+        pred_df = pred_df.copy()
+        pred_df['date'] = pd.to_datetime(pred_df['date'])
+        pred_df['year_month'] = pred_df['date'].dt.to_period('M')
         
-        for model_name, pred_df in predictions.items():
-            pred_df = pred_df.copy()
-            pred_df['date'] = pd.to_datetime(pred_df['date'])
-            pred_df['year_month'] = pred_df['date'].dt.to_period('M')
-            
-            # 获取该模型在该 regime 下的 IC
-            model_regime_ics = []
-            for month in pred_df['year_month'].unique():
-                month_data = pred_df[pred_df['year_month'] == month]
-                month_date = month_data['date'].iloc[0]
-                
-                if month_date in market_stats.index:
-                    month_regime = market_stats.loc[month_date, 'regime']
-                    if month_regime == regime and len(month_data) > 10:
-                        # 计算 rank IC
-                        ic = month_data['predicted'].corr(month_data['excess_return'], method='spearman')
-                        if not np.isnan(ic):
-                            model_regime_ics.append(ic)
-            
-            if model_regime_ics:
-                avg_ic = np.mean(model_regime_ics)
-                if avg_ic > best_ic:
-                    best_ic = avg_ic
-                    best_model = model_name
+        # 只用 test_month 之前的数据
+        past_data = pred_df[pred_df['year_month'] < test_month].tail(lookback_months * 30)  # 约 N 个月
         
-        if best_model:
-            regime_performance[regime] = best_model
-            print(f"  {regime}: best model = {best_model} (IC = {best_ic:.4f})")
+        # 计算该模型在该 regime 下的历史 IC
+        model_regime_ics = []
+        for month in past_data['year_month'].unique():
+            month_data = past_data[past_data['year_month'] == month]
+            month_date = month_data['date'].iloc[0]
+            
+            if month_date in market_stats.index:
+                month_regime = market_stats.loc[month_date, 'regime']
+                if month_regime == regime and len(month_data) > 10:
+                    ic = month_data['predicted'].corr(month_data['excess_return'], method='spearman')
+                    if not np.isnan(ic):
+                        model_regime_ics.append(ic)
+        
+        if model_regime_ics:
+            avg_ic = np.mean(model_regime_ics)
+            if avg_ic > best_ic:
+                best_ic = avg_ic
+                best_model = model_name
     
-    return regime_performance
+    if best_model:
+        return best_model
+    return 'full_46_equal'  # 默认
 
 
 def walk_forward_regime_adaptive_v2(predictions, feature_df, horizon=10):
-    """Regime 自适应 walk-forward V2"""
+    """Regime 自适应 walk-forward V2（无数据泄露）"""
     # 获取市场 regime
     market_stats = detect_regime(feature_df)
     
     # 合并所有预测
     all_models = list(predictions.keys())
     print(f"\n模型池: {all_models}")
-    
-    # 预计算每个 regime 的最佳模型
-    print("\n预计算 regime 性能...")
-    regime_performance = precompute_regime_performance(predictions, market_stats)
     
     # 构建统一的预测 DataFrame
     unified = None
@@ -164,7 +157,7 @@ def walk_forward_regime_adaptive_v2(predictions, feature_df, horizon=10):
     unified['year_month'] = unified['date'].dt.to_period('M')
     months = sorted(unified['year_month'].unique())
     
-    # 逐月做 regime 自适应选择
+    # 逐月做 regime 自适应选择（walk-forward）
     all_preds = []
     
     for i, test_month in enumerate(months):
@@ -179,8 +172,10 @@ def walk_forward_regime_adaptive_v2(predictions, feature_df, horizon=10):
         else:
             current_regime = 'sideways'
         
-        # 选择最佳模型
-        best_model = select_best_model(current_regime, regime_performance)
+        # Walk-forward 选择最佳模型（只用历史数据）
+        best_model = select_best_model_walkforward(
+            current_regime, test_month, predictions, market_stats, lookback_months=12
+        )
         
         # 获取该模型的预测
         model_pred = test_data[test_data['model_name'] == best_model]
