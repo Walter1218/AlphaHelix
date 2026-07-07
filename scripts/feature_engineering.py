@@ -33,6 +33,30 @@ def rank_features(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     return df
 
 
+def discretize_features(df: pd.DataFrame, cols: List[str], n_bins: int = 5) -> pd.DataFrame:
+    """
+    对指定列做截面分位离散化，输出 0 ~ n_bins-1 的整数。
+    按日期分组做 qcut，确保每个截面内分布均匀。
+    缺失值填充为 n_bins // 2（中间档）。
+    """
+    df = df.copy()
+    for col in cols:
+        if col not in df.columns:
+            continue
+        if "date" in df.columns:
+            # 按日期分组做 qcut
+            df[col] = df.groupby("date")[col].transform(
+                lambda x: pd.qcut(x, n_bins, labels=False, duplicates="drop")
+            )
+        else:
+            try:
+                df[col] = pd.qcut(df[col], n_bins, labels=False, duplicates="drop")
+            except Exception:
+                pass
+        df[col] = df[col].fillna(n_bins // 2).astype(int)
+    return df
+
+
 def winsorize_features(df: pd.DataFrame, cols: List[str],
                        lower: float = 0.01, upper: float = 0.99) -> pd.DataFrame:
     """
@@ -102,11 +126,13 @@ def build_numeric_features(df: pd.DataFrame,
                            feature_cols: Optional[List[str]] = None,
                            neutralize: bool = True,
                            rank: bool = True,
-                           winsorize: bool = True) -> pd.DataFrame:
+                           winsorize: bool = True,
+                           discretize: bool = False,
+                           n_bins: int = 5) -> pd.DataFrame:
     """
     把原始因子 DataFrame 转换为模型可用的数值特征。
 
-    处理顺序：截尾 → 中性化 → rank。
+    处理顺序：截尾 → 中性化 → rank → 离散化（可选）。
     """
     if feature_cols is None:
         feature_cols = [
@@ -137,6 +163,8 @@ def build_numeric_features(df: pd.DataFrame,
         df = neutralize_features(df, feature_cols)
     if rank:
         df = rank_features(df, feature_cols)
+    if discretize:
+        df = discretize_features(df, feature_cols, n_bins=n_bins)
     return df
 
 
