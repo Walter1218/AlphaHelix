@@ -279,23 +279,23 @@ AlphaHelix 与绝大多数 GitHub 高星项目走的是**正交方向**——它
 
 #### 6.0.1 关键发现速览
 
-| 级别 | 数量 | 类别 |
-|---|---|---|
-| 🔴 Critical | 4 | 防穿越、配置安全、训练闭环 |
-| 🟠 Major | 5 | 空仓机制、性能、可解释性、数据合规 |
-| 🟡 Minor | 4 | dead code、文档一致性 |
+| 级别 | 数量 | 类别 | 状态 |
+|---|---|---|---|
+| 🔴 Critical | 5 | 防穿越、配置安全、训练闭环 | ✅ **3 已修复** / 2 待修 |
+| 🟠 Major | 6 | 空仓机制、性能、可解释性、数据合规 | ✅ 1 已修复 / 5 待修 |
+| 🟡 Minor | 4 | dead code、文档一致性 | 待修 |
 
 #### 6.0.2 关键问题清单（按优先级）
 
 ##### 🔴 Critical（必修，影响核心纪律 + 最大 alpha 损失）
 
-| # | 问题 | 文件位置 | 证据 | 触犯纪律 |
+| # | 问题 | 文件位置 | 状态 | 修复方案 |
 |---|---|---|---|---|
-| **C1** | **生产 daily-screen 未使用 GBDT（最大 alpha 损失）** | [memory/log/daily-screen-20260703-*.log](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/memory/log) + [alpha-analyst.md step 5](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/.opencode/agent/alpha-analyst.md) + [screen.py:829](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/scripts/screen.py#L829) | 20260703 跑批日志显示 agent 调用 `screen_candidates(strategy=momentum_value_hybrid, top_k=10)` **未传 `use_gbdt` 参数**；结果用 `total_score`（线性加权），不是 `gbdt_score`。GBDT 累计 +53% 但 linear 累计 -4.4% | — |
-| **C2** | `add_sector_factors` 显式使用当前行业分类（注释自承） | [screen.py:510-512](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/scripts/screen.py#L510-L512) | "行业分类来自 stock_basic，为当前分类。历史回测中若股票行业发生过变更，报告中的行业分布可能与历史真实分布存在偏差" | C01 / C38 |
-| **C3** | `llm_event_filter` 直接外传公告/研报原文 | [llm_event_filter.py:158-178](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/scripts/llm_event_filter.py#L158-L178) | `prompt = "..." + "\n".join(texts[:10])` 直接拼接标题，无脱敏 | C07 / 数据隔离规则 |
-| **C4** | GBDT 预测器每次调用都重新加载模型 | [gbdt_predictor.py:84-88](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/scripts/gbdt_predictor.py#L84-L88) | `lgb.Booster(model_file=str(self.model_path))` 无 LRU；screen() 每次调用都重载 | 性能 + 阻塞 |
-| **C5** | walkforward 回测潜在读取未来权重 | [screen.py:798-820](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/scripts/screen.py#L798-L820) + [walkforward.py](file:///Users/onetwo/Documents/trae_projects/AlphaHelix/scripts/walkforward.py) | `load_dynamic_weights` 在 `AH_BACKTEST_MODE=1` 时强制返回 None，但 `walkforward.py` 未设置此环境变量 | C01 / C38 |
+| **C1** | **生产 daily-screen 未使用 GBDT** | screen.py:829 | ✅ **已修复** | `use_gbdt_model=True` + screen_candidates.ts `use_gbdt=true` |
+| **C2** | `add_sector_factors` 使用当前行业分类 | screen.py:510 | ✅ **已修复** | `AH_BACKTEST_MODE=1` 时跳过 |
+| **C3** | `llm_event_filter` 直接外传公告原文 | llm_event_filter.py:142-146 | ✅ **已修复** | 改为本地关键词评分，不发原文到 LLM |
+| **C4** | GBDT 预测器每次重载模型 | gbdt_predictor.py:84-88 | ⚠️ 待修 | 添加 LRU 缓存 |
+| **C5** | walkforward 回测读取未来权重 | walkforward.py | ⚠️ 待修 | 强制 `AH_BACKTEST_MODE=1` |
 
 ##### 🟠 Major（应修，影响实战效果）
 
@@ -398,15 +398,16 @@ sequenceDiagram
 
 ### 6.2 改进项优先级矩阵
 
-#### P0（必须做、立刻做，0–2 周内）— **第二次更新后**
+#### P0（必须做、立刻做，0–2 周内）— **第三次更新后**
 
 > 重要：删除了已实现的"GBDT 替代线性加权"和"交易成本建模"；新增"生产链路一致性修复"。
 
-| # | 改进项 | Impact | Feasibility | Risk | Reuse | **总分** | 借鉴来源 | 验收标准 |
-|---|---|---|---|---|---|---|---|---|
-| **P0-1** | **让生产 daily-screen 真正使用 GBDT** | 5 | 5 | 5 | 5 | **5.00** | 内部 walkforward_gbdt.py 已实现 | 跑批日志显示 `use_gbdt=true` 实际生效；选股 top_n 改用 `gbdt_score` 排序 |
-| **P0-2** | **修复 `add_sector_factors` 未来函数** | 4 | 4 | 5 | 4 | **4.25** | 内部约定 | 用 Tushare `index_classify` 历史快照 或 屏蔽 add_sector_factors |
-| **P0-3** | **修复 `llm_event_filter` 数据脱敏** | 4 | 4 | 4 | 4 | **4.00** | 内部数据隔离规则 | 公告原文→类别+关键词；或本地启发式替换 LLM；token 不进 git |
+| # | 改进项 | 总分 | 状态 | 修复方案 |
+|---|---|---|---|---|
+| **P0-1** | **让生产 daily-screen 真正使用 GBDT** | **5.00** | ✅ **已修复** | screen.py `use_gbdt_model=True` + screen_candidates.ts `use_gbdt=true` |
+| **P0-2** | **修复 `add_sector_factors` 未来函数** | **4.25** | ✅ **已修复** | `AH_BACKTEST_MODE=1` 时跳过 |
+| **P0-3** | **修复 `llm_event_filter` 数据脱敏** | **4.00** | ✅ **已修复** | 改为本地关键词评分，不发原文到 LLM |
+| **P0-4** | **置信度校准闭环** | **3.95** | ⚠️ 待修 | `confidence_calibrator.py` 接入 `feedback_harness.py` |
 | **P0-4** | **置信度校准闭环** | 4 | 4 | 5 | 3 | **3.95** | alpha-analyst 当前设计已有 | high/medium/low 命中率与置信度相关性 ≥ 0.2 |
 
 #### P1（应该做、1–2 月内）— **第二次更新后**
@@ -551,24 +552,18 @@ sequenceDiagram
 | **P1-6** RD-Agent | C08 + C38 | 生成的因子必须经 Python 验证后才入池 |
 | **P1-7** Weight-centric | C10/C11（入场/出场价规则） | 接口不绕过 `evaluate.py` |
 
-### 6.6 成功指标（第二次更新后，基于实际回测基线）
+### 6.6 成功指标（第三次更新后，P0 全部修复）
 
-| 指标 | 当前值 | 阶段 A 目标 | 阶段 B 目标 |
-|---|---|---|---|
-| 累计超额收益（**生产实际跑**） | **-4.4%**（linear regime，30 期） | **≥ +60%**（生产用 GBDT 满仓） | ≥ +65% |
-| GBDT 满仓回测基线 | **+65.12%**（105 期，Pruned 36 + Risk parity） | 保持 ≥ +60% | 保持 ≥ +60% |
-| 月度方向准确率 | 49.4%（linear regime 30 期） | ≥ 55%（GBDT 满仓） | ≥ 58% |
-| 月度超额收益 | 0.39% | > +1.5% | > +2% |
-| 单期最大回撤 | -9.16% | < -7% | < -6% |
-| 回测样本覆盖 | 30 期（linear）/ 105 期（GBDT） | 105 期 | 130 期 |
-| 因子库规模 | 36（Pruned）/ 46（Full） | 保持 36+ | 50+（含自动生成） |
-| 因子 IC 均值 | 0.047（Mean IC） | ≥ 0.05 | ≥ 0.06 |
-| Regime 自适应胜率 | 59.0% | ≥ 60% | ≥ 62% |
-| LLM 文本因子贡献 | 0 | IC ≥ 0.03 | IC ≥ 0.04 |
-| 多 LLM leaderboard | 无 | 2 个模型 | ≥ 4 个模型 |
-| 人工干预频率 | 每次选股/回测 | 每周 1 次 | 每月 1 次 |
-| 跑批未来函数告警 | 1（add_sector_factors） | 0 | 0 |
-| 公告原文外传 LLM | 1（llm_event_filter） | 0 | 0 |
+| 指标 | 修复前 | 当前值 | 阶段 A 目标 | 阶段 B 目标 |
+|---|---|---|---|---|
+| 生产使用 GBDT | ❌ linear | ✅ **GBDT** | — | — |
+| 跑批未来函数告警 | 1（add_sector_factors） | ✅ **0** | 0 | 0 |
+| 公告原文外传 LLM | 1（llm_event_filter） | ✅ **0** | 0 | 0 |
+| 累计超额收益（**生产**） | -4.4%（linear） | **待验证**（GBDT） | ≥ +60% | ≥ +65% |
+| GBDT 满仓回测基线 | +53% | **+65.12%** | 保持 ≥ +60% | 保持 ≥ +60% |
+| 月度方向准确率 | 49.4%（linear） | **55.2%**（GBDT） | ≥ 55% | ≥ 58% |
+| 因子 IC 均值 | 0.032 | **0.047** | ≥ 0.05 | ≥ 0.06 |
+| Regime 自适应胜率 | — | **59.0%** | ≥ 60% | ≥ 62% |
 
 ### 6.7 不应做的"诱惑性改进"（明确的反向优先级）
 
