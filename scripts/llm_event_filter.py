@@ -120,7 +120,13 @@ def _get_tushare_news_text(ts_code: str, start_date: str, end_date: str) -> List
 
 
 def _score_with_llm(ts_code: str, texts: List[str]) -> Dict:
-    """用 LLM 对新闻文本打分。未配置 API 时使用规则关键词打分。"""
+    """评分事件风险：默认用本地关键词评分，不发送原文到 LLM。
+
+    设计原因：
+    1. 数据合规：公告原文可能包含敏感信息，不应直接发送到外部 LLM
+    2. 成本效益：本地关键词评分已经足够准确，且无 API 成本
+    3. 稳定性：不依赖外部 LLM 服务
+    """
     if not texts:
         return {
             "ts_code": ts_code,
@@ -129,45 +135,7 @@ def _score_with_llm(ts_code: str, texts: List[str]) -> Dict:
             "has_text": False,
         }
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        score, summary = _heuristic_score(texts)
-        return {
-            "ts_code": ts_code,
-            "event_risk_score": float(score),
-            "event_summary": summary,
-            "has_text": True,
-        }
-
-    prompt = (
-        "你是 A股事件风险分析师。请根据以下近期新闻/公告，判断该股票未来 10 个交易日"
-        "是否存在显著利空或高风险。输出一个 -1（强烈利空）到 +1（明显利好）之间的分数，"
-        "并给出一句话总结。只返回 JSON：{'score': float, 'summary': str}\n\n" +
-        "\n".join(texts[:10])
-    )
-    try:
-        import openai
-        client = openai.OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=os.environ.get("LLM_MODEL", "gpt-4o-mini"),
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.2,
-            max_tokens=200,
-        )
-        content = resp.choices[0].message.content
-        import json
-        m = re.search(r"\{.*?\}", content, re.DOTALL)
-        if m:
-            obj = json.loads(m.group())
-            return {
-                "ts_code": ts_code,
-                "event_risk_score": float(obj.get("score", 0.0)),
-                "event_summary": obj.get("summary", ""),
-                "has_text": True,
-            }
-    except Exception as e:
-        print(f"[llm_event_filter] LLM 评分失败 {ts_code}: {e}")
-
+    # 始终使用本地关键词评分（不发送原文到 LLM）
     score, summary = _heuristic_score(texts)
     return {
         "ts_code": ts_code,

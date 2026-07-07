@@ -506,7 +506,12 @@ def add_sector_factors(df: pd.DataFrame, group_col: str = "industry") -> pd.Data
 
     注意：行业分类来自 `stock_basic`，为当前分类。历史回测中若股票行业发生过变更，
     报告中的行业分布可能与历史真实分布存在偏差，因此该因子仅作为辅助参考。
+
+    回测模式（AH_BACKTEST_MODE=1）时跳过，避免未来函数。
     """
+    if os.environ.get("AH_BACKTEST_MODE", "").lower() in ("1", "true", "yes"):
+        return df
+
     if df.empty or group_col not in df.columns:
         return df
 
