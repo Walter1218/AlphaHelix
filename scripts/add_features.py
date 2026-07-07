@@ -100,8 +100,8 @@ def add_regime_features(df):
         market_vol = df.groupby("date")["volatility_20"].mean()
         df["market_volatility"] = df["date"].map(market_vol)
         
-        # 波动率状态
-        df["vol_regime"] = (df["market_volatility"] > df["market_volatility"].median()).astype(int)
+        # 波动率状态：用滚动 median（历史数据）
+        df["vol_regime"] = (df["market_volatility"] > df["market_volatility"].rolling(60, min_periods=1).median()).astype(int)
     return df
 
 
