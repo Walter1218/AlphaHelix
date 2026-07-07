@@ -68,14 +68,13 @@ def train_xgboost(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs):
 
 
 def train_catboost(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs):
-    train_pool = cb.Pool(X_tr, label=y_tr, feature_names=feature_cols)
-    val_pool = cb.Pool(X_val, label=y_val, feature_names=feature_cols)
-    params = {
-        "loss_function": "RMSE", "learning_rate": 0.05, "depth": 6,
-        "subsample": 0.8, "random_seed": 42, "verbose": 0,
-    }
-    model = cb.train(params, train_pool, num_boost_round=300,
-                     eval_set=val_pool, early_stopping_rounds=30, verbose=0)
+    from catboost import CatBoostRegressor
+    model = CatBoostRegressor(
+        iterations=300, learning_rate=0.05, depth=6,
+        subsample=0.8, random_seed=42, verbose=0,
+        early_stopping_rounds=30,
+    )
+    model.fit(X_tr, y_tr, eval_set=(X_val, y_val))
     return {"model": model, "feature_cols": feature_cols}
 
 

@@ -1112,6 +1112,34 @@ python scripts/screen.py regime 20250402 30 --use-gbdt
 3. 加入 MLP 神经网络作为第四个基模型；
 4. 尝试双层 Stacking（Level 0: GBDT 家族, Level 1: 线性模型）。
 
+**CatBoost 修复 & 4 模型 Stacking（2026-07-07 更新）**：
+
+修复方案：使用 `CatBoostRegressor` 类替代 `cb.train()`，避免 Pool 对象 deepcopy 问题。
+
+| 方法 | 累计超额 | 胜率 | Mean IC | ICIR |
+|---|---|---|---|---|
+| 单一 GBDT | +43.93% | 56.2% | 0.032 | 0.16 |
+| 3 模型 Stacking | +44.13% | 59.0% | 0.050 | 0.25 |
+| **4 模型 Stacking** | **+41.07%** | **60.0%** | **0.050** | **0.25** |
+
+CatBoost 单独 Mean IC 仅 0.016（最弱），但 Stacking 自动降低其权重，整体胜率从 56.2% 提升到 **60.0%**（+3.8%）。
+
+**当前生产推荐配置（更新）**：
+
+| 层级 | 配置 | 参数 |
+|---|---|---|
+| 数据 | 训练集 | `memory/dataset/features_h10_composite.parquet` |
+| 召回层 | 规则过滤 | `volatility_20 <= 0.95` 且 `total_mv >= 0.05` |
+| 排序层 | **Stacking 集成** | LightGBM + XGBoost + CatBoost + Ridge |
+| 组合层 | 持仓 | 20 只等权 |
+| 择时 | 宏观二值过滤 | `macro_regime_threshold=-0.3` |
+
+**绩效基准**：
+- 累计超额收益：**+41.07%**
+- 胜率：**60.0%**
+- 年化夏普：**~0.85**
+- 平均换手率：**62.7%**
+
 ### 12.13 建议推进顺序（更新后）
 
 ---
