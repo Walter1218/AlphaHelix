@@ -186,6 +186,9 @@ def main():
                         help="宏观 regime 阈值，当 regime_score <= 阈值时空仓；未指定时使用连续缩放")
     args = parser.parse_args()
 
+    # 回测模式：禁止读取未来权重（C01/C38 纪律）
+    os.environ["AH_BACKTEST_MODE"] = "1"
+
     if not args.pred_path and not args.dataset:
         parser.error("必须提供 --pred-path 或 --dataset")
 

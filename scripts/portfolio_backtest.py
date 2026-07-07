@@ -546,6 +546,9 @@ def main():
                         help="持仓权重方案：equal 等权，score 按预测得分，risk_parity 按波动率倒数，score_risk 结合得分和风险")
     args = parser.parse_args()
 
+    # 回测模式：禁止读取未来权重（C01/C38 纪律）
+    os.environ["AH_BACKTEST_MODE"] = "1"
+
     summary = run_backtest(
         args.pred_path,
         max_positions=args.max_positions,

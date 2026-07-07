@@ -76,6 +76,9 @@ def main():
     parser.add_argument("--max-positions", type=int, default=20)
     args = parser.parse_args()
 
+    # 回测模式：禁止读取未来权重（C01/C38 纪律）
+    os.environ["AH_BACKTEST_MODE"] = "1"
+
     res = apply_timing(args.pred, args.macro_dataset, args.max_positions)
     print("=== Market Timing vs Baseline ===")
     print(f"Baseline  avg excess={res['avg_excess_baseline']:.4f}  cum={res['cum_excess_baseline']:.4f}  win={res['win_rate_baseline']:.1%}")

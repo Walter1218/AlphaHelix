@@ -178,6 +178,9 @@ def main():
     parser.add_argument("--end-date", default=None)
     args = parser.parse_args()
 
+    # 回测模式：禁止读取未来权重（C01/C38 纪律）
+    os.environ["AH_BACKTEST_MODE"] = "1"
+
     summary = run_walkforward_regime_gbdt(
         dataset_path=args.dataset,
         macro_dataset=args.macro_dataset,

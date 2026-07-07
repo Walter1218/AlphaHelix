@@ -165,6 +165,9 @@ def main():
     parser.add_argument("--metric", choices=["avg_excess", "win_rate", "sharpe"], default="avg_excess")
     args = parser.parse_args()
 
+    # 回测模式：禁止读取未来权重（C01/C38 纪律）
+    os.environ["AH_BACKTEST_MODE"] = "1"
+
     calibrate_and_mask(args.pred, args.output, args.train_periods, args.max_positions, metric=args.metric)
 
 

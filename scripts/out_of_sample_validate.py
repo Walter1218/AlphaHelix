@@ -100,6 +100,9 @@ def main():
     parser.add_argument("--per-regime", action="store_true", help="Train separate weights per market regime")
     args = parser.parse_args()
 
+    # 回测模式：禁止读取未来权重（C01/C38 纪律）
+    os.environ["AH_BACKTEST_MODE"] = "1"
+
     if args.test_start <= args.train_end:
         raise ValueError("Test period must start after training period ends")
 
