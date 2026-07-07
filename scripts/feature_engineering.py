@@ -22,13 +22,17 @@ warnings.filterwarnings("ignore")
 def rank_features(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
     """
     对指定列做截面 rank 标准化，输出到 [0, 1]。
+    按日期分组 rank，避免未来数据泄露。
     缺失值填充为 0.5。
     """
     df = df.copy()
     for col in cols:
         if col not in df.columns:
             continue
-        df[col] = df[col].rank(pct=True, na_option="keep")
+        if "date" in df.columns:
+            df[col] = df.groupby("date")[col].rank(pct=True, na_option="keep")
+        else:
+            df[col] = df[col].rank(pct=True, na_option="keep")
         df[col] = df[col].fillna(0.5)
     return df
 
@@ -61,14 +65,22 @@ def winsorize_features(df: pd.DataFrame, cols: List[str],
                        lower: float = 0.01, upper: float = 0.99) -> pd.DataFrame:
     """
     对指定列做截面截尾，避免极端值影响模型。
+    按日期分组计算分位数，避免未来数据泄露。
     """
     df = df.copy()
     for col in cols:
         if col not in df.columns:
             continue
-        lo = df[col].quantile(lower)
-        hi = df[col].quantile(upper)
-        df[col] = df[col].clip(lo, hi)
+        if "date" in df.columns:
+            def clip_by_quantile(x):
+                lo = x.quantile(lower)
+                hi = x.quantile(upper)
+                return x.clip(lo, hi)
+            df[col] = df.groupby("date")[col].transform(clip_by_quantile)
+        else:
+            lo = df[col].quantile(lower)
+            hi = df[col].quantile(upper)
+            df[col] = df[col].clip(lo, hi)
     return df
 
 
@@ -79,7 +91,7 @@ def neutralize_features(df: pd.DataFrame, feature_cols: List[str],
     对数值因子做行业/市值中性化。
 
     方法：对每个因子，在截面上用行业和 log(市值) 做线性回归，取残差。
-    行业为 categorical，内部做 one-hot；缺失行业归为 "未知"。
+    按日期分组计算，避免未来数据泄露。
     """
     df = df.copy()
     if group_col not in df.columns:
@@ -91,34 +103,75 @@ def neutralize_features(df: pd.DataFrame, feature_cols: List[str],
     else:
         df["_log_size"] = 0.0
 
-    # one-hot 行业
-    dummies = pd.get_dummies(df[group_col], prefix="_ind", drop_first=True)
-    dummy_cols = dummies.columns.tolist()
-    df = pd.concat([df, dummies], axis=1)
-
-    X_cols = ["_log_size"] + dummy_cols
-    X = df[X_cols].fillna(0).values
-
-    for col in feature_cols:
-        if col not in df.columns:
-            continue
-        y = pd.to_numeric(df[col], errors="coerce").values
-        valid = ~np.isnan(y)
-        if valid.sum() < len(X_cols) + 5:
-            df[col] = np.where(valid, y, 0.0)
-            continue
-        try:
-            # 最小二乘：beta = (X'X)^-1 X'y
-            Xv = X[valid]
-            yv = y[valid]
-            beta = np.linalg.lstsq(Xv, yv, rcond=None)[0]
-            pred = X @ beta
-            residual = y - pred
-            df[col] = np.where(valid, residual, 0.0)
-        except Exception:
-            df[col] = np.where(valid, y, 0.0)
-
-    df = df.drop(columns=["_log_size"] + dummy_cols, errors="ignore")
+    # 按日期分组做中性化
+    if "date" in df.columns:
+        groups = df.groupby("date")
+        result_dfs = []
+        for date, group in groups:
+            group = group.copy()
+            # one-hot 行业
+            dummies = pd.get_dummies(group[group_col], prefix="_ind", drop_first=True)
+            dummy_cols = dummies.columns.tolist()
+            group = pd.concat([group, dummies], axis=1)
+            
+            X_cols = ["_log_size"] + dummy_cols
+            if not X_cols or group.empty:
+                result_dfs.append(group)
+                continue
+            
+            X = group[X_cols].fillna(0).values
+            
+            for col in feature_cols:
+                if col not in group.columns:
+                    continue
+                y = pd.to_numeric(group[col], errors="coerce").values
+                valid = ~np.isnan(y)
+                if valid.sum() < len(X_cols) + 5:
+                    group[col] = np.where(valid, y, 0.0)
+                    continue
+                try:
+                    Xv = X[valid]
+                    yv = y[valid]
+                    beta = np.linalg.lstsq(Xv, yv, rcond=None)[0]
+                    pred = X @ beta
+                    residual = y - pred
+                    group[col] = np.where(valid, residual, 0.0)
+                except Exception:
+                    group[col] = np.where(valid, y, 0.0)
+            
+            group = group.drop(columns=["_log_size"] + dummy_cols, errors="ignore")
+            result_dfs.append(group)
+        
+        df = pd.concat(result_dfs, ignore_index=True)
+    else:
+        # 无日期列时，用全截面（Fallback）
+        dummies = pd.get_dummies(df[group_col], prefix="_ind", drop_first=True)
+        dummy_cols = dummies.columns.tolist()
+        df = pd.concat([df, dummies], axis=1)
+        
+        X_cols = ["_log_size"] + dummy_cols
+        X = df[X_cols].fillna(0).values
+        
+        for col in feature_cols:
+            if col not in df.columns:
+                continue
+            y = pd.to_numeric(df[col], errors="coerce").values
+            valid = ~np.isnan(y)
+            if valid.sum() < len(X_cols) + 5:
+                df[col] = np.where(valid, y, 0.0)
+                continue
+            try:
+                Xv = X[valid]
+                yv = y[valid]
+                beta = np.linalg.lstsq(Xv, yv, rcond=None)[0]
+                pred = X @ beta
+                residual = y - pred
+                df[col] = np.where(valid, residual, 0.0)
+            except Exception:
+                df[col] = np.where(valid, y, 0.0)
+        
+        df = df.drop(columns=["_log_size"] + dummy_cols, errors="ignore")
+    
     return df
 
 
