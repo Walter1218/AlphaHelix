@@ -826,7 +826,7 @@ def screen(date: str, strategy: str, top_n: int = 50, return_full: bool = False,
            pass1_weights_override: dict = None, pass2_weights_override: dict = None,
            manager=None, threshold: float = 0.5,
            max_positions: int = None,
-           use_gbdt_model: bool = False, gbdt_model_path: str = None,
+           use_gbdt_model: bool = True, gbdt_model_path: str = None,
            gbdt_threshold: float = None, gbdt_max_positions: int = None,
            gbdt_predictor: "GBDTScorePredictor" = None):
     """通用选股入口。支持 strategy='regime' 自动按市场状态切换策略；支持动态权重和权重覆盖。

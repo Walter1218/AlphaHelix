@@ -66,8 +66,11 @@ def run_walkforward_gbdt(pred_path: str = None,
                          weight_scheme: str = "equal",
                          max_sector_weight: float = 1.0,
                          neutralize_market_cap: bool = False,
-                         macro_dataset: str = None,
-                         macro_regime_threshold: float = None) -> dict:
+                          macro_dataset: str = None,
+                          macro_regime_threshold: float = None) -> dict:
+    if macro_dataset:
+        print("[WARNING] Macro timing has been shown to HURT performance (-60% cumulative excess).")
+        print("[WARNING] Consider removing --macro-dataset for better results.")
     if pred_path:
         pred_df = pd.read_parquet(pred_path)
     elif dataset_path:
