@@ -36,14 +36,11 @@ def load_all_predictions(horizon=10):
     """加载所有模型的预测结果"""
     predictions = {}
     
-    # 定义所有模型配置
+    # 定义所有模型配置（使用修复后的数据集）
     configs = {
         'full_46_equal': f'predictions_h{horizon}_full_18m.parquet',
-        'full_46_riskparity': f'predictions_h{horizon}_full_18m.parquet',  # 需要重新生成
         'pruned_36_equal': f'predictions_h{horizon}_pruned_18m.parquet',
-        'pruned_36_riskparity': f'predictions_h{horizon}_pruned_18m.parquet',  # 需要重新生成
-        'original_30_equal': f'predictions_h{horizon}_stacking_6m.parquet',
-        'original_30_riskparity': f'predictions_h{horizon}_stacking_6m.parquet',  # 需要重新生成
+        'original_30_equal': f'predictions_h{horizon}_original_30_fixed.parquet',
     }
     
     for name, filename in configs.items():
