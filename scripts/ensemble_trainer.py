@@ -104,13 +104,14 @@ def predict_model(model_dict, X, model_type):
 
 
 def walk_forward_ensemble(df, feature_cols, train_window_months=6,
-                          models=None, method="average"):
+                          models=None, method="average", lookback_months=3):
     """
     walk-forward 集成预测。
     
     method:
         - "average": 简单平均所有模型预测
         - "stacking": 用 Ridge 组合模型预测
+        - "dynamic": 动态选择近期表现最好的模型（排除 CatBoost）
     """
     df = df.sort_values("date").copy()
     df["year_month"] = df["date"].dt.to_period("M")
@@ -122,9 +123,14 @@ def walk_forward_ensemble(df, feature_cols, train_window_months=6,
             "xgboost": train_xgboost,
             "catboost": train_catboost,
             "ridge": train_ridge,
+            "mlp": train_mlp,
         }
     
     all_preds = []
+    # 动态集成：记录各模型近期验证集表现
+    model_val_scores = {name: [] for name in models.keys()}
+    # 动态选择用的模型（排除 CatBoost）
+    dynamic_models = {k: v for k, v in models.items() if k != "catboost"}
     
     for i, test_month in enumerate(months):
         train_months = months[max(0, i - train_window_months):i]
@@ -179,6 +185,29 @@ def walk_forward_ensemble(df, feature_cols, train_window_months=6,
             
             test_X = np.column_stack(list(model_preds.values()))
             preds = meta.predict(test_X)
+        elif method == "dynamic":
+            # 动态选择：基于验证集 IC 选 top-2 模型（排除 CatBoost）
+            val_ics = {}
+            for name, model in trained_models.items():
+                if name in dynamic_models:  # 只评估非 CatBoost 模型
+                    val_pred = predict_model(model, X_val, name)
+                    if len(val_pred) == len(y_val):
+                        ic = np.corrcoef(val_pred, y_val)[0, 1]
+                        val_ics[name] = ic
+                        model_val_scores[name].append(ic)
+            
+            # 用 lookback 个月的平均 IC 选 top-2
+            if val_ics:
+                avg_ics = {}
+                for name, ic in val_ics.items():
+                    recent = model_val_scores[name][-lookback_months:]
+                    avg_ics[name] = np.mean(recent) if recent else ic
+                
+                sorted_models = sorted(avg_ics.items(), key=lambda x: x[1], reverse=True)
+                top_models = [name for name, _ in sorted_models[:2]]
+                preds = np.mean([model_preds[name] for name in top_models], axis=0)
+            else:
+                preds = np.mean(list(model_preds.values()), axis=0)
         else:
             preds = np.mean(list(model_preds.values()), axis=0)
         
@@ -192,6 +221,13 @@ def walk_forward_ensemble(df, feature_cols, train_window_months=6,
         all_preds.append(pred)
         print(f"  {test_month}: {len(test_df)} stocks, {len(model_preds)} models")
     
+    # 输出动态集成的模型选择统计
+    if method == "dynamic" and all(model_val_scores.values()):
+        print("\n=== Dynamic Model Selection Stats ===")
+        for name, scores in model_val_scores.items():
+            if scores:
+                print(f"  {name}: avg IC = {np.mean(scores):.4f}, selected {len(scores)} times")
+    
     if not all_preds:
         return pd.DataFrame()
     
@@ -203,7 +239,7 @@ def main():
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--horizon", type=int, default=10)
     parser.add_argument("--train-window-months", type=int, default=6)
-    parser.add_argument("--method", choices=["average", "stacking"], default="average")
+    parser.add_argument("--method", choices=["average", "stacking", "dynamic"], default="average")
     parser.add_argument("--output-name", default=None)
     args = parser.parse_args()
     
