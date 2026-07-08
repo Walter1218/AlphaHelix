@@ -77,7 +77,8 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
                target: str = "excess_return",
                objective: str = "regression",
                train_group: np.ndarray = None,
-               val_group: np.ndarray = None):
+               val_group: np.ndarray = None,
+               sample_weight: np.ndarray = None):
     if model_type == "lightgbm":
         if not HAS_LIGHTGBM:
             raise ImportError("lightgbm not installed")
@@ -98,7 +99,7 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
                 "seed": 42,
             }
         elif objective == "regression":
-            train_data = lgb.Dataset(X_train, label=y_train)
+            train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weight)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
             params = {
                 "objective": "regression",
@@ -198,12 +199,14 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
                          model_type: str = "lightgbm",
                          target: str = "excess_return",
                          objective: str = "regression",
-                         recall_filters: dict = None) -> pd.DataFrame:
+                         recall_filters: dict = None,
+                         decay_halflife: int = None) -> pd.DataFrame:
     """
     滚动训练 + walk-forward 预测。
 
     每月用过去 N 个月的数据训练模型，预测下一个月所有样本。
     若提供 recall_filters，训练与预测只在该召回子集上进行。
+    若提供 decay_halflife（天数），训练样本按指数衰减加权（半衰期）。
     """
     df = df.sort_values("date").copy()
     df["year_month"] = df["date"].dt.to_period("M")
@@ -232,6 +235,13 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
         tr_df = train_df[train_df["year_month"] != val_month].sort_values("date")
         val_df = train_df[train_df["year_month"] == val_month].sort_values("date")
 
+        # 计算样本权重（alpha decay）
+        sample_weight = None
+        if decay_halflife is not None and decay_halflife > 0:
+            max_date = tr_df["date"].max()
+            days_diff = (max_date - tr_df["date"]).dt.days.values
+            sample_weight = np.power(0.5, days_diff / decay_halflife)
+
         X_tr = tr_df[feature_cols].values
         X_val = val_df[feature_cols].values
 
@@ -246,6 +256,8 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
         if objective == "lambdarank":
             kwargs["train_group"] = _compute_group_counts(tr_df)
             kwargs["val_group"] = _compute_group_counts(val_df)
+        if sample_weight is not None:
+            kwargs["sample_weight"] = sample_weight
 
         try:
             model = train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs)
@@ -460,6 +472,8 @@ def main():
     parser.add_argument("--dataset", default=None, help="Path to parquet dataset (default: memory/dataset/features_h{horizon}.parquet)")
     parser.add_argument("--recall-filters", default=None,
                         help='召回过滤规则 JSON，例如 {"volatility_20":{"max":0.95},"total_mv":{"min":0.05}}')
+    parser.add_argument("--decay-halflife", type=int, default=None,
+                        help="Alpha decay 半衰期（天数），训练样本按指数衰减加权")
     args = parser.parse_args()
 
     df = load_dataset(args.horizon, args.dataset)
@@ -477,7 +491,8 @@ def main():
                                        model_type=args.model_type,
                                        target=args.target,
                                        objective=args.objective,
-                                       recall_filters=recall_filters)
+                                       recall_filters=recall_filters,
+                                       decay_halflife=args.decay_halflife)
         output_name = f"predictions_h{args.horizon}_walkforward_{args.target}_{args.objective}.parquet"
     else:
         pred_df, model = simple_split_predict(df, feature_cols,
