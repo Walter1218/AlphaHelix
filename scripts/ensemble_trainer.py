@@ -91,6 +91,13 @@ def train_mlp(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs):
     return {"model": model, "feature_cols": feature_cols}
 
 
+def train_mlp_deep(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs):
+    model = MLPRegressor(hidden_layer_sizes=(128, 64, 32), max_iter=500,
+                         random_state=42, early_stopping=True)
+    model.fit(X_tr, y_tr)
+    return {"model": model, "feature_cols": feature_cols}
+
+
 def predict_model(model_dict, X, model_type):
     model = model_dict["model"]
     if model_type == "lightgbm":
@@ -124,6 +131,7 @@ def walk_forward_ensemble(df, feature_cols, train_window_months=6,
             "catboost": train_catboost,
             "ridge": train_ridge,
             "mlp": train_mlp,
+            "mlp_deep": train_mlp_deep,
         }
     
     all_preds = []
