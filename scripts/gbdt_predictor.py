@@ -15,6 +15,7 @@ import os
 import json
 from pathlib import Path
 from typing import Optional
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
@@ -50,7 +51,13 @@ def _import_xgboost():
 
 
 class GBDTScorePredictor:
-    """GBDT 打分器。线程不安全，建议每个进程只初始化一次。"""
+    """GBDT 打分器。线程不安全，建议每个进程只初始化一次。
+
+    使用类级别缓存避免重复加载相同模型文件。
+    """
+
+    # 类级别模型缓存：{model_path: model}
+    _model_cache: dict = {}
 
     def __init__(self, model_path: str, model_type: Optional[str] = None,
                  feature_cols: Optional[list] = None):
@@ -99,6 +106,11 @@ class GBDTScorePredictor:
                 print(f"[GBDTScorePredictor] Failed to load threshold config: {e}")
 
     def _load_model(self):
+        cache_key = str(self.model_path)
+        if cache_key in self._model_cache:
+            self.model = self._model_cache[cache_key]
+            return
+
         if self.model_type == "lightgbm":
             lgb = _import_lightgbm()
             self.model = lgb.Booster(model_file=str(self.model_path))
@@ -107,6 +119,8 @@ class GBDTScorePredictor:
             self.model = xgb.Booster(model_file=str(self.model_path))
         else:
             raise ValueError(f"Unsupported model_type: {self.model_type}")
+
+        self._model_cache[cache_key] = self.model
 
     def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """对原始候选 DataFrame 做与训练一致的特征工程。"""
