@@ -78,7 +78,8 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
                objective: str = "regression",
                train_group: np.ndarray = None,
                val_group: np.ndarray = None,
-               sample_weight: np.ndarray = None):
+               sample_weight: np.ndarray = None,
+               learning_rate: float = None):
     if model_type == "lightgbm":
         if not HAS_LIGHTGBM:
             raise ImportError("lightgbm not installed")
@@ -101,11 +102,12 @@ def train_gbdt(X_train, y_train, X_val, y_val, feature_cols,
         elif objective == "regression":
             train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weight)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+            lr = learning_rate if learning_rate is not None else 0.05
             params = {
                 "objective": "regression",
                 "metric": "rmse",
                 "boosting_type": "gbdt",
-                "learning_rate": 0.05,
+                "learning_rate": lr,
                 "num_leaves": 31,
                 "feature_fraction": 0.8,
                 "bagging_fraction": 0.8,
@@ -200,7 +202,8 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
                          target: str = "excess_return",
                          objective: str = "regression",
                          recall_filters: dict = None,
-                         decay_halflife: int = None) -> pd.DataFrame:
+                         decay_halflife: int = None,
+                         learning_rate: float = None) -> pd.DataFrame:
     """
     滚动训练 + walk-forward 预测。
 
@@ -258,6 +261,8 @@ def walk_forward_predict(df: pd.DataFrame, feature_cols: list,
             kwargs["val_group"] = _compute_group_counts(val_df)
         if sample_weight is not None:
             kwargs["sample_weight"] = sample_weight
+        if learning_rate is not None:
+            kwargs["learning_rate"] = learning_rate
 
         try:
             model = train_gbdt(X_tr, y_tr, X_val, y_val, feature_cols, **kwargs)
@@ -474,6 +479,8 @@ def main():
                         help='召回过滤规则 JSON，例如 {"volatility_20":{"max":0.95},"total_mv":{"min":0.05}}')
     parser.add_argument("--decay-halflife", type=int, default=None,
                         help="Alpha decay 半衰期（天数），训练样本按指数衰减加权")
+    parser.add_argument("--learning-rate", type=float, default=None,
+                        help="LightGBM learning_rate（默认 0.05）")
     args = parser.parse_args()
 
     df = load_dataset(args.horizon, args.dataset)
@@ -492,7 +499,8 @@ def main():
                                        target=args.target,
                                        objective=args.objective,
                                        recall_filters=recall_filters,
-                                       decay_halflife=args.decay_halflife)
+                                       decay_halflife=args.decay_halflife,
+                                       learning_rate=args.learning_rate)
         output_name = f"predictions_h{args.horizon}_walkforward_{args.target}_{args.objective}.parquet"
     else:
         pred_df, model = simple_split_predict(df, feature_cols,
