@@ -326,6 +326,44 @@
 
 ---
 
+## 实验 14：Regime 特征（2026-07-09）
+
+### 实验设计
+- **目标**：将市场 regime 作为特征输入模型
+- **假设**：模型能学会如何在不同 regime 下调整策略
+
+### 数据周期
+- 同实验 1（2024-01-02 ~ 2026-06-08）
+
+### 特征介绍
+- **新增特征**：12 个
+  - regime_bull/bear/sideways: One-hot 编码
+  - regime_numeric: 数值编码（-1/0/1）
+  - regime_strength: Regime 强度
+  - regime_confidence: Regime 置信度
+  - market_avg_excess: 市场平均超额收益
+  - market_vol_excess: 市场波动率
+  - market_win_rate: 市场胜率
+  - regime_x_mom: Regime × 动量交互
+  - regime_x_vol: Regime × 波动率交互
+
+### 训练/测试划分
+- 同实验 1（18 个月滚动 walk-forward）
+
+### 实验结果
+| 配置 | 胜率 | 累计超额 | Mean IC | ICIR |
+|---|---|---|---|---|
+| 基线（36 特征） | 63.8% | +48.46% | 0.050 | 0.25 |
+| +12 Regime 特征 | 60.0% | +42.58% | 0.098 | 0.52 |
+
+### 结论
+- Regime 特征**提升预测能力**：IC +96%，ICIR +108%
+- 但**降低胜率**：63.8% → 60.0%
+- 这是 trade-off：更好的预测 ≠ 更高的胜率
+- Regime 特征适合用于**风险控制**而非**选股排序**
+
+---
+
 ## 实验 8：组合特征（2026-07-09）
 
 ### 实验设计
