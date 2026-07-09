@@ -394,7 +394,7 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
             except Exception:
                 pass
 
-        # 卖出不在新持仓中的旧股
+        # 只卖出不在新持仓中的旧股（部分换仓，不是全部替换）
         sold = current_holdings - new_holdings
         for code in sold:
             if code not in prices:
@@ -416,6 +416,21 @@ def run_backtest(pred_path, max_positions=10, max_sector_pct=0.4,
         valid_codes = [c for c in new_holdings if c in new_prices]
         n = len(valid_codes)
         scale = date_to_scale.get(t_str, 1.0)
+        
+        # 基于市场波动率的仓位管理（胜率优先）
+        if len(records) >= 5:
+            recent_returns = [r.get("portfolio_return", 0) for r in records[-5:]]
+            vol = np.std(recent_returns) if len(recent_returns) > 1 else 0
+            
+            if vol < 0.01:
+                target_scale = 1.0
+            elif vol < 0.02:
+                target_scale = 0.9
+            else:
+                target_scale = 0.8
+            
+            scale = scale * 0.7 + target_scale * 0.3
+        
         weights = {}
         if n > 0:
             weights = _compute_weights(
