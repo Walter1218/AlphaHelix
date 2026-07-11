@@ -57,9 +57,13 @@ def _strategy_config(date: str, strategy: str):
 
 
 def build_pass1_full_dataset(start_date: str, end_date: str, horizon: int,
-                             delta_days: int = 5, strategy: str = "regime"):
+                             delta_days: int = 5, strategy: str = "regime",
+                             output_path: str = None):
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = DATASET_DIR / f"features_h{horizon}_pass1_full.parquet"
+    if output_path is None:
+        output_path = DATASET_DIR / f"features_h{horizon}_pass1_full.parquet"
+    else:
+        output_path = Path(output_path)
 
     rebalance = get_rebalance_dates(start_date, end_date, delta_days)
     print(f"[build_pass1_full] {len(rebalance)} rebalance dates, strategy={strategy}")
@@ -149,7 +153,9 @@ if __name__ == "__main__":
     parser.add_argument("--horizon", type=int, required=True)
     parser.add_argument("--delta-days", type=int, default=5)
     parser.add_argument("--strategy", default="regime")
+    parser.add_argument("--output", default=None, help="输出文件路径")
     args = parser.parse_args()
 
     build_pass1_full_dataset(args.start, args.end, args.horizon,
-                             delta_days=args.delta_days, strategy=args.strategy)
+                             delta_days=args.delta_days, strategy=args.strategy,
+                             output_path=args.output)

@@ -122,7 +122,7 @@ class GBDTScorePredictor:
 
         self._model_cache[cache_key] = self.model
 
-    def prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def prepare_features(self, df: pd.DataFrame, skip_rank: bool = False) -> pd.DataFrame:
         """对原始候选 DataFrame 做与训练一致的特征工程。"""
         # 确保行业/市值字段存在，供中性化使用
         if "industry" not in df.columns:
@@ -131,18 +131,20 @@ class GBDTScorePredictor:
             df["total_mv"] = np.nan
 
         # 只对模型期望的特征做处理
+        # 单股票预测时跳过 rank（rank 对单个样本无意义）
+        should_rank = not skip_rank and len(df) > 1
         df = build_numeric_features(
             df,
             feature_cols=self.feature_cols,
             neutralize=True,
-            rank=True,
+            rank=should_rank,
             winsorize=True,
         )
         return df
 
-    def predict(self, df: pd.DataFrame) -> np.ndarray:
+    def predict(self, df: pd.DataFrame, skip_rank: bool = False) -> np.ndarray:
         """输入 screen.py 的候选 DataFrame，返回预测得分数组。"""
-        df = self.prepare_features(df)
+        df = self.prepare_features(df, skip_rank=skip_rank)
 
         # 补齐缺失列
         for col in self.feature_cols:
@@ -172,7 +174,7 @@ class GBDTScorePredictor:
 def find_latest_model(model_dir: Path = Path("memory/models"), horizon: int = 10,
                       target: str = "excess_return", model_type: str = "lightgbm",
                       objective: str = None) -> Optional[Path]:
-    """按命名约定查找最新保存的模型。"""
+    """按命名约定查找最新保存的模型。优先返回有效的多树模型。"""
     candidates = []
     if objective == "lambdarank":
         candidates.append(model_dir / f"gbdt_latest_h{horizon}_lambdarank.{model_type}.txt")
@@ -182,6 +184,22 @@ def find_latest_model(model_dir: Path = Path("memory/models"), horizon: int = 10
         model_dir / f"gbdt_h{horizon}_walkforward_{target}.{model_type}.txt",
         model_dir / f"gbdt_h{horizon}_latest.{model_type}.txt",
     ])
+    
+    # 优先返回有效的多树模型
+    for p in candidates:
+        if p.exists():
+            try:
+                if model_type == "lightgbm":
+                    import lightgbm as lgb
+                    model = lgb.Booster(model_file=str(p))
+                    if model.num_trees() > 1:
+                        return p
+                else:
+                    return p
+            except Exception:
+                continue
+    
+    # 如果没有有效模型，返回第一个存在的
     for p in candidates:
         if p.exists():
             return p

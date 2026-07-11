@@ -82,7 +82,7 @@ def build_dataset(start_date: str, end_date: str, horizon: int,
                 print("empty")
                 continue
 
-            df_feat = build_numeric_features(df_pass2)
+            df_feat = build_numeric_features(df_pass2, rank=False)
             feature_cols = [c for c in df_feat.columns if c in [
                 "mom_5", "mom_20", "mom_60", "mom_120",
                 "risk_adj_mom", "relative_strength",

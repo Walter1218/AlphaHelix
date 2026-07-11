@@ -481,6 +481,8 @@ def main():
                         help="Alpha decay 半衰期（天数），训练样本按指数衰减加权")
     parser.add_argument("--learning-rate", type=float, default=None,
                         help="LightGBM learning_rate（默认 0.05）")
+    parser.add_argument("--description", type=str, default="", help="版本描述")
+    parser.add_argument("--tags", type=str, default="", help="标签，逗号分隔")
     args = parser.parse_args()
 
     df = load_dataset(args.horizon, args.dataset)
@@ -492,6 +494,7 @@ def main():
         recall_filters = json.loads(args.recall_filters)
         print(f"[model_trainer] Recall filters: {recall_filters}")
 
+    model_path = None
     if args.mode == "walkforward":
         pred_df = walk_forward_predict(df, feature_cols,
                                        train_window_months=args.train_window_months,
@@ -520,6 +523,48 @@ def main():
     output_path = PRED_DIR / output_name
     pred_df.to_parquet(output_path, index=False)
     print(f"[model_trainer] Saved {len(pred_df)} predictions to {output_path}")
+
+    # 计算性能指标
+    pred_df["date"] = pd.to_datetime(pred_df["date"])
+    pred_df["rank"] = pred_df.groupby("date")["predicted"].rank(ascending=False)
+    top10 = pred_df[pred_df["rank"] <= 10]
+    win_rate = float((top10["excess_return"] > 0).mean())
+    cum_excess = float(top10.groupby("date")["excess_return"].mean().sum())
+    mean_ic = float(pred_df.groupby("date").apply(
+        lambda g: g["predicted"].corr(g["excess_return"], method="spearman")
+    ).mean())
+
+    metrics = {
+        "win_rate": win_rate,
+        "cum_excess": cum_excess,
+        "mean_ic": mean_ic,
+    }
+
+    # 注册到模型版本管理
+    try:
+        from model_registry import ModelRegistry
+        registry = ModelRegistry()
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
+        version = registry.save_model(
+            model_path=model_path or str(output_path),
+            predictions_path=str(output_path),
+            config={
+                "dataset": args.dataset,
+                "horizon": args.horizon,
+                "mode": args.mode,
+                "model_type": args.model_type,
+                "train_window_months": args.train_window_months,
+                "target": args.target,
+                "objective": args.objective,
+                "features": feature_cols,
+            },
+            metrics=metrics,
+            tags=tags,
+            description=args.description,
+        )
+        print(f"\n[model_trainer] Registered as {version}")
+    except Exception as e:
+        print(f"\n[model_trainer] Warning: Failed to register model: {e}")
 
 
 if __name__ == "__main__":

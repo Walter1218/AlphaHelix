@@ -249,6 +249,8 @@ def main():
     parser.add_argument("--train-window-months", type=int, default=6)
     parser.add_argument("--method", choices=["average", "stacking", "dynamic"], default="average")
     parser.add_argument("--output-name", default=None)
+    parser.add_argument("--description", type=str, default="", help="版本描述")
+    parser.add_argument("--tags", type=str, default="", help="标签，逗号分隔")
     args = parser.parse_args()
     
     df = load_dataset(args.horizon, args.dataset)
@@ -280,6 +282,46 @@ def main():
             lambda g: g[col].corr(g["excess_return"], method="spearman")
         ).mean()
         print(f"  {name}: Mean IC = {ic:.4f}")
+    
+    # 计算性能指标
+    result["date"] = pd.to_datetime(result["date"])
+    result["rank"] = result.groupby("date")["predicted"].rank(ascending=False)
+    top10 = result[result["rank"] <= 10]
+    win_rate = float((top10["excess_return"] > 0).mean())
+    cum_excess = float(top10.groupby("date")["excess_return"].mean().sum())
+    ensemble_ic = float(result.groupby("date").apply(
+        lambda g: g["predicted"].corr(g["excess_return"], method="spearman")
+    ).mean())
+    
+    metrics = {
+        "win_rate": win_rate,
+        "cum_excess": cum_excess,
+        "ensemble_ic": ensemble_ic,
+    }
+    
+    # 注册到模型版本管理
+    try:
+        from model_registry import ModelRegistry
+        registry = ModelRegistry()
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
+        version = registry.save_model(
+            model_path=str(PRED_DIR / output_name),
+            predictions_path=str(output_path),
+            config={
+                "dataset": args.dataset,
+                "horizon": args.horizon,
+                "train_window_months": args.train_window_months,
+                "method": args.method,
+                "features": feature_cols,
+                "num_models": len(pred_cols),
+            },
+            metrics=metrics,
+            tags=tags,
+            description=args.description,
+        )
+        print(f"\n[ensemble] Registered as {version}")
+    except Exception as e:
+        print(f"\n[ensemble] Warning: Failed to register model: {e}")
 
 
 if __name__ == "__main__":

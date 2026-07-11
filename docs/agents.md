@@ -235,6 +235,59 @@ best_model(regime) = argmax(model IC on ALL data in regime)
 6. [ ] **Regime 检测**：是否使用滚动窗口而非全局统计？
 7. [ ] **回测结果**：是否与之前有显著差异？（差异过大可能意味着泄露）
 
+### 2.9 原始数据保存规范（强制）
+
+> **底线原则**：数据集必须保存原始特征值，归一化/标准化操作只能在模型训练时进行，不能在数据集构建时执行。
+
+#### 核心原则
+
+- **原始值优先**：数据集中的特征必须是原始计算值（如 RSI=65.2, mom_5=0.03, roe=0.15），而非归一化后的值（如 rank=0.506）
+- **归一化在训练时进行**：rank/winsorize/neutralize 等操作应在模型训练时（walk-forward 每期）执行，而非数据集构建时
+- **可逆性**：从数据集可以还原到原始因子值，便于调试和分析
+
+#### 禁止行为
+
+1. **数据集构建时做 rank 归一化**：
+   - 错误：`build_numeric_features(df, rank=True)` → 数据集保存 rank 值
+   - 正确：`build_numeric_features(df, rank=False)` → 数据集保存原始值
+
+2. **screen.py 中对因子做 rank_fill**：
+   - 错误：`return rank_fill(df[factor])` → 因子被归一化
+   - 正确：`return df[factor]` → 保存原始值
+
+3. **用全局统计量处理特征**：
+   - 错误：用全样本均值/中位数填充缺失值
+   - 正确：用当日截面均值或前值填充
+
+#### 允许做法
+
+1. **模型训练时做归一化**：
+   - 在 walk-forward 每期内，用训练集数据做 rank/winsorize/neutralize
+   - 用训练集的统计量处理测试集
+
+2. **数据集可以保存衍生特征**：
+   - 如 `mom_x_vol = mom_5 * volatility_20`（原始值的乘积）
+   - 如 `quality_growth = roe * profit_growth`（原始值的乘积）
+
+3. **数据集可以保存截面排名**：
+   - 如 `mom_20_sector_rank`（行业内排名，不是全局 rank）
+
+#### 代码审查清单
+
+每次修改 `build_dataset.py` 或 `screen.py` 时，必须检查：
+
+1. [ ] `build_numeric_features` 是否使用 `rank=False`？
+2. [ ] `screen.py` 的 `_factor_series` 是否返回原始值而非 rank_fill？
+3. [ ] 数据集中的特征值是否为原始计算值（非归一化）？
+4. [ ] 归一化操作是否在模型训练时进行？
+
+#### 已知问题（已修复）
+
+| 问题 | 影响 | 修复方案 |
+|---|---|---|
+| screen.py 对所有因子做 rank_fill | 特征被归一化，丢失原始信号 | 改为返回原始值 |
+| build_dataset.py 使用 rank=True | 数据集保存 rank 值 | 改为 rank=False |
+
 ## 3. alpha-analyst 职责与能力
 
 ### 3.0 实验记录规范（强制）
@@ -499,3 +552,80 @@ write 工具写入 memory/stock/YYYYMMDD.md + .json
   1. `git diff --check` 无空白错误；
   2. 无新增的 token、密码或个人本地路径；
   3. `memory/`、`.cache/`、`*.log` 等未出现在 `git status` 的待提交列表中。
+
+### 2.10 胜率度量规范（强制）
+
+> **核心原则**：存在两种胜率计算方式，不可混用。
+
+#### 两种胜率定义
+
+| 指标 | 计算方式 | 含义 | 优先级 |
+|---|---|---|---|
+| **个股胜率** | Top-N 中，超额收益>0 的股票占比 | 选股准确率 | **当前优先** |
+| **组合胜率** | 每天 Top-N 组合平均超额>0 的天数占比 | 组合盈利能力 | 未来补充 |
+
+#### 为什么组合胜率更高？
+- 个股胜率：每只股票独立计算，5赢5亏 = 50%
+- 组合胜率：N只合成1个组合，赢的幅度大于亏的幅度 = 正收益
+- 组合胜率天然高于个股胜率，因为平均效应平滑了噪声
+
+#### 使用规范
+1. **当前优化目标**：个股胜率
+2. **未来补充指标**：组合胜率
+3. **实验记录必须标明**使用的是哪种胜率
+4. **两种胜率不可混用对比**
+
+#### 代码审查清单
+1. [ ] 胜率计算是否使用正确的度量方式？
+2. [ ] 实验记录是否标明了胜率类型？
+3. [ ] 对比实验是否使用相同的胜率度量？
+
+### 2.11 最优模型配置（当前）
+
+> **最后更新**：2026-07-10
+
+#### 配置
+
+| 参数 | 值 |
+|---|---|
+| 数据集 | features_h10_full.parquet (762K行, 2469只/天) |
+| 特征 | Top-30（按 IC 排序） |
+| 模型 | Ridge alpha=5.0 |
+| 训练窗口 | 12 个月 |
+| 验证窗口 | 3 个月 |
+| Purge gap | 1 个月 |
+| 个股胜率 | 50.0% |
+| 组合胜率（波动率加权） | 57.4% |
+| 累计超额 | +180.8% |
+
+#### 特征列表（Top-30）
+
+```
+1. relative_to_sector    2. mom_120           3. mom_60
+4. sector_momentum       5. mom_20            6. volatility_20
+7. liquidity             8. sector_breadth    9. margin_total_balance
+10. risk_adj_mom         11. northbound_net_5d 12. bp
+13. mom_5                14. defensive_quality 15. top_list_flag
+16. top_list_turnover_rate 17. risk_adj_momentum_20 18. top_list_amount_rate
+19. value_quality        20. amount_ratio_5d   21. dv_ratio
+22. northbound_net       23. reversal_score    24. sp
+25. top_list_pct_change  26. roe               27. forecast_type_score
+28. days_to_disclosure   29. revenue_growth    30. earnings_surprise_momentum
+```
+
+#### 关键发现
+
+1. **更大股票池需要更强正则化**：alpha 从 2.0 → 5.0
+2. **更多数据需要更长训练窗口**：9个月 → 12个月
+3. **更多特征更优**：18 → 30个
+4. **波动率仓位管理有效**：组合胜率 +7.4%
+
+#### 使用方法
+
+```bash
+# 个股预测
+python scripts/predict_stock.py 600036.SH 300750.SZ --date 20260601
+
+# 每日选股
+python scripts/daily_screen.py
+```
