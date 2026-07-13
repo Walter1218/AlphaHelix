@@ -48,8 +48,8 @@ def get_stock_names() -> Dict[str, str]:
         return {}
 
 
-def get_recent_returns(ts_codes: List[str], days: int = 7) -> Dict[str, float]:
-    """获取最近 N 天的收益率"""
+def get_stock_price_info(ts_codes: List[str]) -> Dict[str, Dict]:
+    """获取股票价格信息（当前价、7日涨跌、30日涨跌）"""
     try:
         import tushare as ts
         token = os.getenv('TUSHARE_TOKEN', '')
@@ -57,29 +57,45 @@ def get_recent_returns(ts_codes: List[str], days: int = 7) -> Dict[str, float]:
         
         # 计算日期范围
         end_date = datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.now() - timedelta(days=days+5)).strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=40)).strftime('%Y%m%d')
         
-        # 获取日线数据
-        returns = {}
+        # 批量获取日线数据
+        price_info = {}
         for ts_code in ts_codes:
             try:
                 df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
                 if df is not None and len(df) >= 2:
-                    # 计算收益率
                     df = df.sort_values('trade_date')
                     latest_close = df.iloc[-1]['close']
-                    older_close = df.iloc[-min(days, len(df)-1)]['close']
-                    ret = (latest_close - older_close) / older_close
-                    returns[ts_code] = ret
+                    
+                    # 7日涨跌
+                    ret_7d = None
+                    if len(df) >= 7:
+                        close_7d = df.iloc[-7]['close']
+                        ret_7d = (latest_close - close_7d) / close_7d
+                    
+                    # 30日涨跌
+                    ret_30d = None
+                    if len(df) >= 30:
+                        close_30d = df.iloc[-30]['close']
+                        ret_30d = (latest_close - close_30d) / close_30d
+                    elif len(df) >= 2:
+                        close_oldest = df.iloc[0]['close']
+                        ret_30d = (latest_close - close_oldest) / close_oldest
+                    
+                    price_info[ts_code] = {
+                        'price': latest_close,
+                        'ret_7d': ret_7d,
+                        'ret_30d': ret_30d,
+                    }
             except Exception as e:
-                logger.warning(f"获取 {ts_code} 收益率失败: {e}")
                 continue
         
-        logger.info(f"获取最近 {days} 天收益率: {len(returns)} 只")
-        return returns
+        logger.info(f"获取价格信息: {len(price_info)} 只")
+        return price_info
         
     except Exception as e:
-        logger.warning(f"获取收益率失败: {e}")
+        logger.warning(f"获取价格信息失败: {e}")
         return {}
 
 
@@ -265,7 +281,7 @@ def generate_predictions(df: pd.DataFrame, feature_cols: List[str], model: objec
         return None
 
 
-def format_report(predictions: pd.DataFrame, date: str, name_map: Dict[str, str], returns_7d: Dict[str, float]) -> str:
+def format_report(predictions: pd.DataFrame, date: str, name_map: Dict[str, str], price_info: Dict[str, Dict]) -> str:
     """格式化报告"""
     try:
         # Top 10 推荐股票
@@ -281,20 +297,29 @@ def format_report(predictions: pd.DataFrame, date: str, name_map: Dict[str, str]
             ts_code = row['ts_code']
             stock_name = name_map.get(ts_code, ts_code)
             confidence = row['confidence'] * 100
-            ret_7d = returns_7d.get(ts_code, None)
+            info = price_info.get(ts_code, {})
             
             content += f"{idx}. {stock_name} ({ts_code})\n"
             content += f"   行业: {row['industry']}\n"
             content += f"   置信度: {confidence:.1f}%\n"
             
+            # 价格信息
+            price = info.get('price')
+            if price:
+                content += f"   现价: {price:.2f}\n"
+            
+            ret_7d = info.get('ret_7d')
             if ret_7d is not None:
-                ret_str = f"{ret_7d:+.2%}"
-                emoji = "📈" if ret_7d > 0 else "📉" if ret_7d < 0 else "➡️"
-                content += f"   7日涨幅: {emoji} {ret_str}\n"
+                emoji = "📈" if ret_7d > 0 else "📉"
+                content += f"   7日涨跌: {emoji} {ret_7d:+.2%}\n"
+            
+            ret_30d = info.get('ret_30d')
+            if ret_30d is not None:
+                emoji = "📈" if ret_30d > 0 else "📉"
+                content += f"   30日涨跌: {emoji} {ret_30d:+.2%}\n"
             
             content += f"   ROE: {row['roe']:.2%}\n"
-            content += f"   股息率: {row['dv_ratio']:.2%}\n"
-            content += f"   动量(20日): {row['mom_20']:.2%}\n\n"
+            content += f"   股息率: {row['dv_ratio']:.2%}\n\n"
         
         # 关注股票（Top 11-20）
         if len(predictions) > 10:
@@ -304,14 +329,12 @@ def format_report(predictions: pd.DataFrame, date: str, name_map: Dict[str, str]
                 ts_code = row['ts_code']
                 stock_name = name_map.get(ts_code, ts_code)
                 confidence = row['confidence'] * 100
-                ret_7d = returns_7d.get(ts_code, None)
+                info = price_info.get(ts_code, {})
                 
-                ret_info = ""
-                if ret_7d is not None:
-                    emoji = "📈" if ret_7d > 0 else "📉" if ret_7d < 0 else "➡️"
-                    ret_info = f" {emoji}{ret_7d:+.2%}"
+                ret_30d = info.get('ret_30d')
+                ret_str = f" 30日:{ret_30d:+.1%}" if ret_30d else ""
                 
-                content += f"{idx}. {stock_name} ({ts_code}) - 置信度: {confidence:.1f}%{ret_info}\n"
+                content += f"{idx}. {stock_name} ({ts_code}) - 置信度: {confidence:.1f}%{ret_str}\n"
         
         content += f"\n⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
@@ -385,15 +408,15 @@ def run_daily_report(dry_run: bool = False):
     
     logger.info(f"预测生成成功: {len(predictions)} 只股票")
     
-    # 4. 获取最近7天收益率
-    logger.info("步骤 4: 获取最近7天收益率...")
+    # 4. 获取价格信息
+    logger.info("步骤 4: 获取价格信息...")
     top20_codes = predictions.head(20)['ts_code'].tolist()
-    returns_7d = get_recent_returns(top20_codes, days=7)
+    price_info = get_stock_price_info(top20_codes)
     
     # 5. 格式化报告
     logger.info("步骤 5: 格式化报告...")
     date = datetime.now().strftime('%Y-%m-%d')
-    report = format_report(predictions, date, name_map, returns_7d)
+    report = format_report(predictions, date, name_map, price_info)
     
     # 6. 推送到飞书
     if dry_run:
