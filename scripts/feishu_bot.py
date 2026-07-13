@@ -1,29 +1,24 @@
 """
-飞书机器人模块
+飞书机器人模块 - WebSocket 长连接方式
 
-支持：
-1. 推送选股结果到飞书
-2. 推送告警通知
-3. 接收飞书命令（Webhook 方式）
+使用飞书官方 lark-oapi SDK 的 WSClient，通过 WebSocket 长连接接收消息，无需公网 IP。
+
+依赖：pip install lark-oapi
 
 用法：
-    python feishu_bot.py --push "测试消息"
-    python feishu_bot.py --start-server
+    python feishu_bot.py --start-ws          # 启动 WebSocket 长连接
+    python feishu_bot.py --push "测试消息"    # 推送消息（需要 Webhook）
 """
 import sys
 import os
 import json
-import hashlib
-import hmac
-import base64
-import time
 import logging
 import argparse
+import threading
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 import pandas as pd
-import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -36,8 +31,140 @@ FEISHU_WEBHOOK_URL = os.getenv("FEISHU_WEBHOOK_URL", "")
 FEISHU_WEBHOOK_SECRET = os.getenv("FEISHU_WEBHOOK_SECRET", "")
 
 
+# ==================== WebSocket 长连接模式 ====================
+
+class FeishuWSBot:
+    """
+    飞书 WebSocket 长连接机器人
+    
+    使用飞书官方 lark-oapi SDK 的 WSClient，通过 WebSocket 长连接接收消息，无需公网 IP。
+    """
+    
+    def __init__(self, app_id: str, app_secret: str):
+        self.app_id = app_id
+        self.app_secret = app_secret
+        self.ws_client = None
+        self._handlers = {}
+    
+    def register_handler(self, event_type: str, handler):
+        """注册事件处理器"""
+        self._handlers[event_type] = handler
+        logger.info(f"注册事件处理器: {event_type}")
+    
+    def _default_message_handler(self, data):
+        """默认消息处理器"""
+        try:
+            event = data.event
+            message = event.message
+            sender = event.sender
+            
+            message_id = message.message_id
+            chat_id = message.chat_id
+            chat_type = message.chat_type
+            msg_type = message.message_type
+            content = json.loads(message.content)
+            sender_id = sender.sender_id.open_id
+            
+            logger.info(f"收到消息: chat_id={chat_id}, type={msg_type}, sender={sender_id}")
+            
+            if msg_type == "text":
+                text = content.get("text", "")
+                logger.info(f"消息内容: {text[:100]}")
+                
+                # 处理命令
+                reply = self._process_command(text, sender_id)
+                
+                # 回复消息
+                self._reply_message(message_id, reply)
+            else:
+                logger.info(f"忽略非文本消息: {msg_type}")
+                
+        except Exception as e:
+            logger.error(f"处理消息失败: {e}")
+    
+    def _process_command(self, text: str, sender_id: str) -> str:
+        """处理命令"""
+        # TODO: 实现命令处理逻辑
+        return f"收到命令: {text}\n\n⏳ 功能开发中..."
+    
+    def _reply_message(self, message_id: str, text: str):
+        """回复消息"""
+        try:
+            import lark_oapi as lark
+            from lark_oapi.api.im.v1 import ReplyMessageRequest, ReplyMessageRequestBody
+            
+            client = lark.Client.builder() \
+                .app_id(self.app_id) \
+                .app_secret(self.app_secret) \
+                .build()
+            
+            body = ReplyMessageRequestBody.builder() \
+                .msg_type("text") \
+                .content(json.dumps({"text": text})) \
+                .build()
+            
+            request = ReplyMessageRequest.builder() \
+                .message_id(message_id) \
+                .request_body(body) \
+                .build()
+            
+            response = client.im.v1.message.reply(request)
+            
+            if response.success():
+                logger.info(f"回复成功: {message_id}")
+            else:
+                logger.error(f"回复失败: {response.code} {response.msg}")
+                
+        except Exception as e:
+            logger.error(f"回复消息失败: {e}")
+    
+    def start(self):
+        """启动 WebSocket 长连接"""
+        try:
+            import lark_oapi as lark
+            from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
+            
+            logger.info(f"启动飞书 WebSocket 长连接...")
+            logger.info(f"App ID: {self.app_id[:8]}...")
+            
+            # 创建事件处理器
+            event_handler = lark.EventDispatcherHandler.builder("", "") \
+                .register_p2_im_message_receive_v1(self._default_message_handler) \
+                .build()
+            
+            # 创建 WebSocket 客户端
+            self.ws_client = lark.ws.Client(
+                self.app_id,
+                self.app_secret,
+                event_handler=event_handler,
+                log_level=lark.LogLevel.INFO
+            )
+            
+            # 启动连接
+            self.ws_client.start()
+            
+        except ImportError:
+            logger.error("请安装 lark-oapi: pip install lark-oapi")
+            sys.exit(1)
+        except Exception as e:
+            logger.error(f"启动失败: {e}")
+            sys.exit(1)
+    
+    def stop(self):
+        """停止 WebSocket 长连接"""
+        if self.ws_client:
+            self.ws_client.close()
+            logger.info("WebSocket 已关闭")
+
+
+# ==================== Webhook 推送模式 ====================
+
 def _gen_sign(secret: str, timestamp: int) -> str:
     """生成飞书签名"""
+    import hmac
+    import hashlib
+    import base64
+    
     string_to_sign = f"{timestamp}\n{secret}"
     hmac_code = hmac.new(
         string_to_sign.encode('utf-8'),
@@ -48,7 +175,7 @@ def _gen_sign(secret: str, timestamp: int) -> str:
 
 def send_text(text: str, webhook_url: str = None, secret: str = None) -> Dict[str, Any]:
     """
-    发送文本消息到飞书
+    发送文本消息到飞书（Webhook 方式）
     
     Args:
         text: 消息内容
@@ -58,6 +185,9 @@ def send_text(text: str, webhook_url: str = None, secret: str = None) -> Dict[st
     Returns:
         发送结果
     """
+    import requests
+    import time
+    
     webhook_url = webhook_url or FEISHU_WEBHOOK_URL
     secret = secret or FEISHU_WEBHOOK_SECRET
     
@@ -72,68 +202,6 @@ def send_text(text: str, webhook_url: str = None, secret: str = None) -> Dict[st
             "msg_type": "text",
             "content": {
                 "text": text
-            }
-        }
-        
-        if secret:
-            msg["sign"] = _gen_sign(secret, timestamp)
-        
-        response = requests.post(
-            webhook_url,
-            json=msg,
-            headers={"Content-Type": "application/json"},
-            timeout=10
-        )
-        
-        result = response.json()
-        
-        if result.get('code') == 0:
-            return {'status': 'ok', 'message': '推送成功'}
-        else:
-            return {'status': 'error', 'message': f'推送失败: {result}'}
-    except Exception as e:
-        return {'status': 'error', 'message': str(e)}
-
-
-def send_rich_text(title: str, content: str, webhook_url: str = None, secret: str = None) -> Dict[str, Any]:
-    """
-    发送富文本消息到飞书
-    
-    Args:
-        title: 消息标题
-        content: 消息内容（Markdown 格式）
-        webhook_url: 飞书 Webhook URL
-        secret: 签名密钥
-    
-    Returns:
-        发送结果
-    """
-    webhook_url = webhook_url or FEISHU_WEBHOOK_URL
-    secret = secret or FEISHU_WEBHOOK_SECRET
-    
-    if not webhook_url:
-        return {'status': 'error', 'message': '未配置飞书 webhook_url'}
-    
-    try:
-        timestamp = int(time.time())
-        
-        msg = {
-            "timestamp": timestamp,
-            "msg_type": "interactive",
-            "card": {
-                "header": {
-                    "title": {
-                        "tag": "plain_text",
-                        "content": title
-                    },
-                    "template": "blue"
-                },
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": content
-                    }
-                ]
             }
         }
         
@@ -175,19 +243,15 @@ def push_stock_selection(predictions: pd.DataFrame, date: str = None) -> Dict[st
     top10 = predictions.nlargest(10, 'predicted')
     
     # 构建消息
-    title = f"📊 AlphaHelix 每日选股报告 - {date}"
-    
-    content = f"**选股日期**: {date}\n"
-    content += f"**选股模型**: DoubleEnsemble\n"
-    content += f"**持仓数量**: Top10\n\n"
-    content += "**选出股票**:\n"
-    content += "| 排名 | 股票代码 | 预测分数 | 行业 |\n"
-    content += "| --- | --- | --- | --- |\n"
+    content = f"📊 AlphaHelix 每日选股报告 - {date}\n\n"
+    content += f"选股模型: DoubleEnsemble\n"
+    content += f"持仓数量: Top10\n\n"
+    content += "选出股票:\n"
     
     for idx, (_, row) in enumerate(top10.iterrows(), 1):
-        content += f"| {idx} | {row['ts_code']} | {row['predicted']:.4f} | {row.get('industry', '-')} |\n"
+        content += f"{idx}. {row['ts_code']} - 预测分数: {row['predicted']:.4f}\n"
     
-    return send_rich_text(title, content)
+    return send_text(content)
 
 
 def push_alert(level: str, title: str, message: str, metadata: Dict = None) -> Dict[str, Any]:
@@ -212,124 +276,47 @@ def push_alert(level: str, title: str, message: str, metadata: Dict = None) -> D
     
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    content = f"{emoji} **{title}**\n"
-    content += f"⏰ 时间: {now}\n"
-    content += f"📍 级别: {level}\n"
-    content += f"\n📝 详情:\n{message}"
+    content = f"{emoji} {title}\n"
+    content += f"时间: {now}\n"
+    content += f"级别: {level}\n\n"
+    content += f"详情:\n{message}"
     
     if metadata:
-        content += f"\n\n🔧 元数据:\n"
+        content += f"\n\n元数据:\n"
         for key, value in metadata.items():
             content += f"- {key}: {value}\n"
     
-    return send_rich_text(f"{emoji} {title}", content)
+    return send_text(content)
 
 
-def push_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    推送回测结果到飞书
-    
-    Args:
-        result: 回测结果
-    
-    Returns:
-        推送结果
-    """
-    title = "📈 AlphaHelix 回测结果"
-    
-    content = "**回测配置**:\n"
-    content += f"- 模型: {result.get('model', 'Unknown')}\n"
-    content += f"- 特征数: {result.get('features', 'Unknown')}\n"
-    content += f"- 测试期: {result.get('test_period', 'Unknown')}\n\n"
-    content += "**回测指标**:\n"
-    content += f"- IC: {result.get('ic', 0):.4f}\n"
-    content += f"- ICIR: {result.get('icir', 0):.2f}\n"
-    content += f"- 服务胜率: {result.get('win_rate', 0):.1%}\n"
-    content += f"- 总收益: {result.get('total_return', 0):.2%}\n"
-    content += f"- 最大回撤: {result.get('max_drawdown', 0):.2%}\n"
-    content += f"- 夏普比率: {result.get('sharpe', 0):.2f}\n"
-    
-    return send_rich_text(title, content)
-
-
-def start_webhook_server(port: int = 8080):
-    """
-    启动飞书 Webhook 服务器
-    
-    Args:
-        port: 端口号
-    """
-    from flask import Flask, request, jsonify
-    
-    app = Flask(__name__)
-    
-    @app.route("/feishu/webhook", methods=["GET", "POST"])
-    def webhook():
-        """飞书 Webhook 入口"""
-        # GET: URL 验证
-        if request.method == "GET":
-            challenge = request.args.get("challenge", "")
-            if challenge:
-                return jsonify({"challenge": challenge})
-            return jsonify({"error": "missing challenge"}), 400
-        
-        # POST: 接收事件
-        body = request.get_json()
-        if not body:
-            return jsonify({"error": "empty body"}), 400
-        
-        # URL 验证事件
-        if body.get("type") == "url_verification":
-            return jsonify({"challenge": body.get("challenge", "")})
-        
-        # 处理消息事件
-        event = body.get("event", {})
-        if event.get("msg_type") == "text":
-            message_id = event.get("message_id", "")
-            chat_id = event.get("chat_id", "")
-            text = event.get("text", "")
-            
-            logger.info(f"收到消息: {text}")
-            
-            # TODO: 处理命令
-            reply = f"收到命令: {text}"
-            
-            # 回复消息（需要使用飞书 API）
-            # 这里简化处理，直接返回成功
-            return jsonify({"status": "ok"}), 200
-        
-        return jsonify({"error": "unsupported event"}), 400
-    
-    @app.route("/feishu/health", methods=["GET"])
-    def health():
-        """健康检查"""
-        return jsonify({
-            "status": "ok",
-            "adapter": "feishu",
-            "timestamp": datetime.now().isoformat()
-        })
-    
-    logger.info(f"启动飞书 Webhook 服务器: http://0.0.0.0:{port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
-
+# ==================== 主函数 ====================
 
 def main():
     parser = argparse.ArgumentParser(description="飞书机器人")
-    parser.add_argument("--push", type=str, help="推送文本消息")
+    parser.add_argument("--start-ws", action="store_true", help="启动 WebSocket 长连接")
+    parser.add_argument("--push", type=str, help="推送文本消息（Webhook 方式）")
     parser.add_argument("--push-alert", nargs=3, metavar=("LEVEL", "TITLE", "MESSAGE"), help="推送告警")
-    parser.add_argument("--start-server", action="store_true", help="启动 Webhook 服务器")
-    parser.add_argument("--port", type=int, default=8080, help="服务器端口")
     args = parser.parse_args()
     
-    if args.push:
+    if args.start_ws:
+        if not FEISHU_APP_ID or not FEISHU_APP_SECRET:
+            print("❌ 请配置 FEISHU_APP_ID 和 FEISHU_APP_SECRET")
+            sys.exit(1)
+        
+        bot = FeishuWSBot(FEISHU_APP_ID, FEISHU_APP_SECRET)
+        
+        # 注册自定义处理器（可选）
+        # bot.register_handler("im.message.receive_v1", custom_handler)
+        
+        # 启动 WebSocket 长连接
+        bot.start()
+    elif args.push:
         result = send_text(args.push)
         print(f"推送结果: {result}")
     elif args.push_alert:
         level, title, message = args.push_alert
         result = push_alert(level, title, message)
         print(f"推送结果: {result}")
-    elif args.start_server:
-        start_webhook_server(args.port)
     else:
         parser.print_help()
 
