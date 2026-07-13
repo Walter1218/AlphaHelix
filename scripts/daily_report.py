@@ -27,6 +27,62 @@ FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
 FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID", "oc_5fe5ead630574921013c411e54270fa2")
 
 
+def get_stock_names() -> Dict[str, str]:
+    """获取股票名称映射"""
+    try:
+        import tushare as ts
+        token = os.getenv('TUSHARE_TOKEN', '')
+        pro = ts.pro_api(token)
+        
+        # 获取股票列表
+        df = pro.stock_basic(exchange='', list_status='L', fields='ts_code,name')
+        
+        # 构建映射
+        name_map = dict(zip(df['ts_code'], df['name']))
+        logger.info(f"获取股票名称: {len(name_map)} 只")
+        
+        return name_map
+        
+    except Exception as e:
+        logger.warning(f"获取股票名称失败: {e}")
+        return {}
+
+
+def get_recent_returns(ts_codes: List[str], days: int = 7) -> Dict[str, float]:
+    """获取最近 N 天的收益率"""
+    try:
+        import tushare as ts
+        token = os.getenv('TUSHARE_TOKEN', '')
+        pro = ts.pro_api(token)
+        
+        # 计算日期范围
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=days+5)).strftime('%Y%m%d')
+        
+        # 获取日线数据
+        returns = {}
+        for ts_code in ts_codes:
+            try:
+                df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+                if df is not None and len(df) >= 2:
+                    # 计算收益率
+                    df = df.sort_values('trade_date')
+                    latest_close = df.iloc[-1]['close']
+                    older_close = df.iloc[-min(days, len(df)-1)]['close']
+                    ret = (latest_close - older_close) / older_close
+                    returns[ts_code] = ret
+            except Exception as e:
+                logger.warning(f"获取 {ts_code} 收益率失败: {e}")
+                continue
+        
+        logger.info(f"获取最近 {days} 天收益率: {len(returns)} 只")
+        return returns
+        
+    except Exception as e:
+        logger.warning(f"获取收益率失败: {e}")
+        return {}
+
+
 def load_and_prepare_data() -> Optional[pd.DataFrame]:
     """加载并准备数据"""
     try:
@@ -209,7 +265,7 @@ def generate_predictions(df: pd.DataFrame, feature_cols: List[str], model: objec
         return None
 
 
-def format_report(predictions: pd.DataFrame, date: str) -> str:
+def format_report(predictions: pd.DataFrame, date: str, name_map: Dict[str, str], returns_7d: Dict[str, float]) -> str:
     """格式化报告"""
     try:
         # Top 10 推荐股票
@@ -222,21 +278,40 @@ def format_report(predictions: pd.DataFrame, date: str) -> str:
         
         content += "🎯 推荐持有:\n"
         for idx, (_, row) in enumerate(top10.iterrows(), 1):
+            ts_code = row['ts_code']
+            stock_name = name_map.get(ts_code, ts_code)
             confidence = row['confidence'] * 100
-            content += f"{idx}. {row['ts_code']}\n"
+            ret_7d = returns_7d.get(ts_code, None)
+            
+            content += f"{idx}. {stock_name} ({ts_code})\n"
             content += f"   行业: {row['industry']}\n"
             content += f"   置信度: {confidence:.1f}%\n"
+            
+            if ret_7d is not None:
+                ret_str = f"{ret_7d:+.2%}"
+                emoji = "📈" if ret_7d > 0 else "📉" if ret_7d < 0 else "➡️"
+                content += f"   7日涨幅: {emoji} {ret_str}\n"
+            
             content += f"   ROE: {row['roe']:.2%}\n"
             content += f"   股息率: {row['dv_ratio']:.2%}\n"
-            content += f"   动量: {row['mom_20']:.2%}\n\n"
+            content += f"   动量(20日): {row['mom_20']:.2%}\n\n"
         
         # 关注股票（Top 11-20）
         if len(predictions) > 10:
             watch_stocks = predictions.iloc[10:20]
             content += "👀 建议关注:\n"
             for idx, (_, row) in enumerate(watch_stocks.iterrows(), 11):
+                ts_code = row['ts_code']
+                stock_name = name_map.get(ts_code, ts_code)
                 confidence = row['confidence'] * 100
-                content += f"{idx}. {row['ts_code']} ({row['industry']}) - 置信度: {confidence:.1f}%\n"
+                ret_7d = returns_7d.get(ts_code, None)
+                
+                ret_info = ""
+                if ret_7d is not None:
+                    emoji = "📈" if ret_7d > 0 else "📉" if ret_7d < 0 else "➡️"
+                    ret_info = f" {emoji}{ret_7d:+.2%}"
+                
+                content += f"{idx}. {stock_name} ({ts_code}) - 置信度: {confidence:.1f}%{ret_info}\n"
         
         content += f"\n⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         
@@ -278,6 +353,10 @@ def run_daily_report(dry_run: bool = False):
     logger.info("开始生成每日选股报告")
     logger.info("=" * 50)
     
+    # 0. 获取股票名称
+    logger.info("步骤 0: 获取股票名称...")
+    name_map = get_stock_names()
+    
     # 1. 加载数据
     logger.info("步骤 1: 加载数据...")
     result = load_and_prepare_data()
@@ -306,12 +385,17 @@ def run_daily_report(dry_run: bool = False):
     
     logger.info(f"预测生成成功: {len(predictions)} 只股票")
     
-    # 4. 格式化报告
-    logger.info("步骤 4: 格式化报告...")
-    date = datetime.now().strftime('%Y-%m-%d')
-    report = format_report(predictions, date)
+    # 4. 获取最近7天收益率
+    logger.info("步骤 4: 获取最近7天收益率...")
+    top20_codes = predictions.head(20)['ts_code'].tolist()
+    returns_7d = get_recent_returns(top20_codes, days=7)
     
-    # 5. 推送到飞书
+    # 5. 格式化报告
+    logger.info("步骤 5: 格式化报告...")
+    date = datetime.now().strftime('%Y-%m-%d')
+    report = format_report(predictions, date, name_map, returns_7d)
+    
+    # 6. 推送到飞书
     if dry_run:
         logger.info("测试模式，不推送飞书")
         print("\n" + "=" * 50)
@@ -320,7 +404,7 @@ def run_daily_report(dry_run: bool = False):
         print(report)
         print("=" * 50)
     else:
-        logger.info("步骤 5: 推送到飞书...")
+        logger.info("步骤 6: 推送到飞书...")
         if send_to_feishu(report):
             logger.info("每日报告完成!")
         else:
