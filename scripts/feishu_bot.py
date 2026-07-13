@@ -289,12 +289,97 @@ def push_alert(level: str, title: str, message: str, metadata: Dict = None) -> D
     return send_text(content)
 
 
+def send_message(chat_id: str, text: str, msg_type: str = "text") -> Dict[str, Any]:
+    """
+    发送消息到指定聊天（使用飞书 API）
+    
+    Args:
+        chat_id: 聊天 ID
+        text: 消息内容
+        msg_type: 消息类型 (text/post)
+    
+    Returns:
+        发送结果
+    """
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+        
+        client = lark.Client.builder() \
+            .app_id(FEISHU_APP_ID) \
+            .app_secret(FEISHU_APP_SECRET) \
+            .build()
+        
+        if msg_type == "post":
+            content = json.dumps({
+                'zh_cn': {
+                    'title': '📊 AlphaHelix 通知',
+                    'content': [[{'tag': 'text', 'text': text}]]
+                }
+            })
+        else:
+            content = json.dumps({'text': text})
+        
+        request = CreateMessageRequest.builder() \
+            .receive_id_type('chat_id') \
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type(msg_type)
+                .content(content)
+                .build()
+            ) \
+            .build()
+        
+        response = client.im.v1.message.create(request)
+        
+        if response.success():
+            return {'status': 'ok', 'message_id': response.data.message_id}
+        else:
+            return {'status': 'error', 'message': f'{response.code} {response.msg}'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
+
+
+def get_chat_list() -> list:
+    """
+    获取机器人参与的聊天列表
+    
+    Returns:
+        聊天列表
+    """
+    try:
+        import lark_oapi as lark
+        from lark_oapi.api.im.v1 import ListChatRequest
+        
+        client = lark.Client.builder() \
+            .app_id(FEISHU_APP_ID) \
+            .app_secret(FEISHU_APP_SECRET) \
+            .build()
+        
+        request = ListChatRequest.builder() \
+            .page_size(10) \
+            .build()
+        
+        response = client.im.v1.chat.list(request)
+        
+        if response.success():
+            return [{'chat_id': item.chat_id, 'name': item.name} for item in response.data.items]
+        else:
+            return []
+    except Exception as e:
+        logger.error(f"获取聊天列表失败: {e}")
+        return []
+
+
 # ==================== 主函数 ====================
 
 def main():
     parser = argparse.ArgumentParser(description="飞书机器人")
     parser.add_argument("--start-ws", action="store_true", help="启动 WebSocket 长连接")
     parser.add_argument("--push", type=str, help="推送文本消息（Webhook 方式）")
+    parser.add_argument("--send", nargs=2, metavar=("CHAT_ID", "MESSAGE"), help="发送消息到指定聊天")
+    parser.add_argument("--list-chats", action="store_true", help="获取聊天列表")
     parser.add_argument("--push-alert", nargs=3, metavar=("LEVEL", "TITLE", "MESSAGE"), help="推送告警")
     args = parser.parse_args()
     
@@ -313,6 +398,15 @@ def main():
     elif args.push:
         result = send_text(args.push)
         print(f"推送结果: {result}")
+    elif args.send:
+        chat_id, message = args.send
+        result = send_message(chat_id, message)
+        print(f"发送结果: {result}")
+    elif args.list_chats:
+        chats = get_chat_list()
+        print(f"找到 {len(chats)} 个聊天:")
+        for chat in chats:
+            print(f"  - {chat['name']}: {chat['chat_id']}")
     elif args.push_alert:
         level, title, message = args.push_alert
         result = push_alert(level, title, message)
