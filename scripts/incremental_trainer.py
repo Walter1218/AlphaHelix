@@ -318,7 +318,7 @@ class IncrementalDoubleEnsemble:
         }
 
 
-def load_and_prepare_data(months_back: int = 12) -> Tuple[np.ndarray, np.ndarray, List[str], pd.DataFrame]:
+def load_and_prepare_data(months_back: int = 1) -> Tuple[np.ndarray, np.ndarray, List[str], pd.DataFrame]:
     """加载并准备数据"""
     # 加载数据
     df = pd.read_parquet('memory/dataset/features_h10_full.parquet')
@@ -379,9 +379,9 @@ def load_and_prepare_data(months_back: int = 12) -> Tuple[np.ndarray, np.ndarray
     ics = {}
     for c in feature_cols:
         ic = calc_ic(train_df[c].values, train_df['excess_return'].values)
-        if not np.isnan(ic):
-            ics[c] = abs(ic)
-    selected = sorted(ics, key=ics.get, reverse=True)[:30]
+        if not np.isnan(ic) and ic > 0:  # 只选正IC
+            ics[c] = ic
+    selected = sorted(ics, key=ics.get, reverse=True)[:15]  # 15个特征
     
     X = train_df[selected].values
     y = train_df['excess_return'].values

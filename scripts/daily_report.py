@@ -162,19 +162,19 @@ def train_model(df: pd.DataFrame, feature_cols: List[str]) -> Optional[object]:
         from sklearn.preprocessing import StandardScaler
         from scipy.stats import spearmanr
         
-        # 使用最近12个月数据训练
+        # 使用最近1个月数据训练（短窗口避免特征方向漂移）
         df['ym'] = df['date'].dt.to_period('M')
         months = sorted(df['ym'].unique())
         
-        if len(months) < 12:
-            logger.error("数据不足12个月")
+        if len(months) < 1:
+            logger.error("数据不足")
             return None
         
-        # 使用最近12个月训练
-        train_months = months[-12:]
+        # 使用最近1个月训练
+        train_months = months[-1:]
         train_df = df[df['ym'].isin(train_months)]
         
-        # 特征选择
+        # 特征选择（只选正IC特征）
         def calc_ic(pred, actual):
             if len(pred) < 10:
                 return 0
@@ -184,9 +184,9 @@ def train_model(df: pd.DataFrame, feature_cols: List[str]) -> Optional[object]:
         ics = {}
         for c in feature_cols:
             ic = calc_ic(train_df[c].values, train_df['excess_return'].values)
-            if not np.isnan(ic):
-                ics[c] = abs(ic)
-        selected = sorted(ics, key=ics.get, reverse=True)[:30]
+            if not np.isnan(ic) and ic > 0:  # 只选正IC
+                ics[c] = ic
+        selected = sorted(ics, key=ics.get, reverse=True)[:15]  # 15个特征
         
         # 训练 DoubleEnsemble
         sc = StandardScaler()
