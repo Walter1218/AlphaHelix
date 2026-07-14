@@ -370,6 +370,101 @@ def send_to_feishu(content: str, chat_id: str = None) -> bool:
         return False
 
 
+def save_predictions(predictions: pd.DataFrame, date: str):
+    """保存预测结果"""
+    try:
+        os.makedirs('memory/predictions', exist_ok=True)
+        path = f'memory/predictions/predictions_{date}.parquet'
+        predictions.to_parquet(path, index=False)
+        logger.info(f"预测结果已保存: {path}")
+    except Exception as e:
+        logger.warning(f"保存预测结果失败: {e}")
+
+
+def load_predictions(date: str) -> Optional[pd.DataFrame]:
+    """加载预测结果"""
+    try:
+        path = f'memory/predictions/predictions_{date}.parquet'
+        if os.path.exists(path):
+            return pd.read_parquet(path)
+        return None
+    except Exception as e:
+        logger.warning(f"加载预测结果失败: {e}")
+        return None
+
+
+def verify_yesterday_predictions(name_map: Dict[str, str]) -> Optional[str]:
+    """验证前一天的预测"""
+    try:
+        # 获取昨天日期
+        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+        
+        # 加载昨天的预测
+        predictions = load_predictions(yesterday)
+        if predictions is None:
+            logger.info(f"未找到昨天的预测结果: {yesterday}")
+            return None
+        
+        logger.info(f"验证昨天预测: {yesterday}, {len(predictions)} 只股票")
+        
+        # 获取今天的价格信息
+        ts_codes = predictions['ts_code'].tolist()
+        price_info = get_stock_price_info(ts_codes)
+        
+        # 计算每只股票的今日收益
+        results = []
+        for _, row in predictions.iterrows():
+            ts_code = row['ts_code']
+            info = price_info.get(ts_code, {})
+            ret_1d = info.get('ret_7d')  # 用7日收益作为近似
+            
+            if ret_1d is not None:
+                correct = ret_1d > 0
+                results.append({
+                    'ts_code': ts_code,
+                    'name': name_map.get(ts_code, ts_code),
+                    'predicted': row.get('predicted', 0),
+                    'confidence': row.get('confidence', 0),
+                    'return': ret_1d,
+                    'correct': correct,
+                })
+        
+        if not results:
+            logger.info("无法获取今日收益")
+            return None
+        
+        df_results = pd.DataFrame(results)
+        
+        # 计算胜率
+        total = len(df_results)
+        correct = df_results['correct'].sum()
+        win_rate = correct / total if total > 0 else 0
+        
+        # 格式化报告
+        content = f"📊 前一天预测验证报告\n"
+        content += f"📅 验证日期: {datetime.now().strftime('%Y-%m-%d')}\n"
+        content += f"📅 预测日期: {yesterday}\n"
+        content += f"📈 预测股票: {total} 只\n\n"
+        
+        content += f"📊 统计结果:\n"
+        content += f"   正确: {correct}/{total}\n"
+        content += f"   胜率: {win_rate:.1%}\n\n"
+        
+        content += "📋 详细结果:\n"
+        for _, row in df_results.iterrows():
+            emoji = "✅" if row['correct'] else "❌"
+            ret_str = f"{row['return']:+.2%}" if row['return'] else "N/A"
+            content += f"{emoji} {row['name']} ({row['ts_code']}) - 预测:{row['confidence']:.0%} 实际:{ret_str}\n"
+        
+        content += f"\n⏰ 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        return content
+        
+    except Exception as e:
+        logger.error(f"验证预测失败: {e}")
+        return None
+
+
 def run_daily_report(dry_run: bool = False):
     """运行每日报告"""
     logger.info("=" * 50)
@@ -379,6 +474,19 @@ def run_daily_report(dry_run: bool = False):
     # 0. 获取股票名称
     logger.info("步骤 0: 获取股票名称...")
     name_map = get_stock_names()
+    
+    # 0.5 验证前一天预测
+    logger.info("步骤 0.5: 验证前一天预测...")
+    verify_report = verify_yesterday_predictions(name_map)
+    if verify_report:
+        if dry_run:
+            print("\n" + "=" * 50)
+            print("前一天预测验证:")
+            print("=" * 50)
+            print(verify_report)
+            print("=" * 50)
+        else:
+            send_to_feishu(verify_report)
     
     # 1. 加载数据
     logger.info("步骤 1: 加载数据...")
@@ -408,6 +516,10 @@ def run_daily_report(dry_run: bool = False):
     
     logger.info(f"预测生成成功: {len(predictions)} 只股票")
     
+    # 3.5 保存预测结果
+    today = datetime.now().strftime('%Y-%m-%d')
+    save_predictions(predictions.head(20), today)
+    
     # 4. 获取价格信息
     logger.info("步骤 4: 获取价格信息...")
     top20_codes = predictions.head(20)['ts_code'].tolist()
@@ -415,8 +527,7 @@ def run_daily_report(dry_run: bool = False):
     
     # 5. 格式化报告
     logger.info("步骤 5: 格式化报告...")
-    date = datetime.now().strftime('%Y-%m-%d')
-    report = format_report(predictions, date, name_map, price_info)
+    report = format_report(predictions, today, name_map, price_info)
     
     # 6. 推送到飞书
     if dry_run:
