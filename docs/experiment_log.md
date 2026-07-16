@@ -3462,3 +3462,41 @@ fina_latest = available.sort_values('end_date').groupby('ts_code').last()
 1. 5天均值目标显著优于1天目标
 2. 降噪是提升预测能力的关键
 3. 更长周期（10天、20天）反而效果差
+
+## 实验 98：修复5天目标数据泄漏（2026-07-16）
+
+### 问题发现
+
+之前实验有数据泄漏：
+- `fwd_5d` 使用 `shift(-1).rolling(5).mean()` 计算
+- 训练集目标变量包含测试期数据
+- 导致 IC=0.27, 胜率=89% 是虚假的
+
+### 修复方法
+
+目标变量只使用训练期数据计算：
+```python
+# 之前（有泄漏）
+df['fwd_5d'] = df.groupby('ts_code')['excess_return'].transform(
+    lambda x: x.shift(-1).rolling(5, min_periods=1).mean()
+)
+
+# 修复后（无泄漏）
+tr_target = tr.groupby('ts_code')['excess_return'].transform(
+    lambda x: x.rolling(5, min_periods=1).mean()
+)
+```
+
+### 实验结果
+
+| 目标 | IC | 胜率 | 收益 |
+|---|---|---|---|
+| 1天收益 | 0.007 | 56.5% | +51.5% |
+| 5天均值 | 0.010 | 60.9% | +89.2% |
+
+### 结论
+
+1. 5天目标仍然优于1天目标
+2. 真实 IC 约 0.01（之前 0.27 是泄漏）
+3. 真实胜率约 60.9%（之前 89% 是泄漏）
+4. 5天目标仍有价值：降噪效果真实存在
