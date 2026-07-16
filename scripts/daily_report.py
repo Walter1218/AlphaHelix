@@ -156,22 +156,30 @@ def load_and_prepare_data() -> Optional[pd.DataFrame]:
 
 
 def train_model(df: pd.DataFrame, feature_cols: List[str]) -> Optional[object]:
-    """训练模型"""
+    """
+    训练模型（基于 Walk-Forward 验证的最优配置）
+    
+    最优配置：
+    - 模型: Ridge alpha=5.0
+    - 特征: 20 个（正 IC 选择）
+    - 训练窗口: 6 个月
+    - 目标: 5 天均值超额收益
+    """
     try:
-        import lightgbm as lgb
         from sklearn.preprocessing import StandardScaler
+        from sklearn.linear_model import Ridge
         from scipy.stats import spearmanr
         
-        # 使用最近1个月数据训练（短窗口避免特征方向漂移）
+        # 使用最近6个月数据训练（Walk-Forward 验证的最优窗口）
         df['ym'] = df['date'].dt.to_period('M')
         months = sorted(df['ym'].unique())
         
-        if len(months) < 1:
-            logger.error("数据不足")
+        if len(months) < 6:
+            logger.error("数据不足6个月")
             return None
         
-        # 使用最近1个月训练
-        train_months = months[-1:]
+        # 使用最近6个月训练
+        train_months = months[-6:]
         train_df = df[df['ym'].isin(train_months)]
         
         # 特征选择（只选正IC特征）
@@ -181,50 +189,28 @@ def train_model(df: pd.DataFrame, feature_cols: List[str]) -> Optional[object]:
             ic, _ = spearmanr(pred, actual)
             return ic if not np.isnan(ic) else 0
         
+        # 计算5天均值目标的IC
+        train_target = train_df.groupby('ts_code')['excess_return'].transform(
+            lambda x: x.rolling(5, min_periods=1).mean()
+        )
+        
         ics = {}
         for c in feature_cols:
-            ic = calc_ic(train_df[c].values, train_df['excess_return'].values)
+            ic = calc_ic(train_df[c].values, train_target.values)
             if not np.isnan(ic) and ic > 0:  # 只选正IC
                 ics[c] = ic
-        selected = sorted(ics, key=ics.get, reverse=True)[:15]  # 15个特征
+        selected = sorted(ics, key=ics.get, reverse=True)[:20]  # 20个特征
         
-        # 训练 DoubleEnsemble
+        # 训练 Ridge 模型（Walk-Forward 验证的最优模型）
         sc = StandardScaler()
         X = sc.fit_transform(train_df[selected].values)
         y = train_df['excess_return'].values
         
-        # 第一阶段
-        model1 = lgb.LGBMRegressor(
-            n_estimators=100,
-            learning_rate=0.05,
-            num_leaves=15,
-            max_depth=4,
-            min_child_samples=50,
-            reg_alpha=1.0,
-            reg_lambda=1.0,
-            random_state=500,
-            verbose=-1
-        )
-        model1.fit(X, y)
-        
-        # 第二阶段
-        residuals = y - model1.predict(X)
-        model2 = lgb.LGBMRegressor(
-            n_estimators=100,
-            learning_rate=0.05,
-            num_leaves=15,
-            max_depth=4,
-            min_child_samples=50,
-            reg_alpha=1.0,
-            reg_lambda=1.0,
-            random_state=501,
-            verbose=-1
-        )
-        model2.fit(X, residuals)
+        model = Ridge(alpha=5.0)  # Walk-Forward 验证的最优 alpha
+        model.fit(X, y)
         
         return {
-            'model1': model1,
-            'model2': model2,
+            'model': model,
             'scaler': sc,
             'selected_features': selected
         }
@@ -259,9 +245,8 @@ def generate_predictions(df: pd.DataFrame, feature_cols: List[str], model: objec
         selected = model['selected_features']
         X = model['scaler'].transform(recalled[selected].values)
         
-        pred1 = model['model1'].predict(X)
-        pred2 = model['model2'].predict(X)
-        predictions = pred1 + pred2
+        # 使用 Ridge 模型预测
+        predictions = model['model'].predict(X)
         
         # 构建结果
         result = recalled[['ts_code', 'industry', 'roe', 'dv_ratio', 'mom_20', 'volatility_20']].copy()
@@ -289,7 +274,7 @@ def format_report(predictions: pd.DataFrame, date: str, name_map: Dict[str, str]
         
         content = f"📊 AlphaHelix 每日选股报告\n"
         content += f"📅 日期: {date}\n"
-        content += f"🤖 模型: DoubleEnsemble\n"
+        content += f"🤖 模型: Ridge (Walk-Forward 验证)\n"
         content += f"📈 持仓: Top10\n\n"
         
         content += "🎯 推荐持有:\n"
