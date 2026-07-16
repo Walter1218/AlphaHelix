@@ -473,6 +473,14 @@ def run_daily_report(dry_run: bool = False):
         else:
             send_to_feishu(verify_report)
     
+    # 0.6 更新监控数据
+    logger.info("步骤 0.6: 更新监控数据...")
+    try:
+        from daily_monitor import update_monitor
+        update_monitor()
+    except Exception as e:
+        logger.warning(f"更新监控数据失败: {e}")
+    
     # 1. 加载数据
     logger.info("步骤 1: 加载数据...")
     result = load_and_prepare_data()
